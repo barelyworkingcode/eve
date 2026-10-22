@@ -2839,6 +2839,148 @@ async function agentDropIn(env) {
     + `${confirmedTrust ? 'folder-trust prompt confirmed' : 'no folder-trust prompt confirmed'}`);
 }
 
+// — Agent drop-in, Pi (eve#610) ------------------------------------------------
+
+const PI_PREFIX = 'pi/relay-router/';
+
+// The `relay logs` lines for one event and one session that relay wrote with status ok.
+// Relay writes them after it answers, so callers poll; `relay logs` exits 1 when nothing matched.
+async function okEventsFor(env, event, sessionId) {
+  const args = ['logs', '--event', event, '--json'];
+  if (env.relayConfigDir) args.unshift('--config-dir', env.relayConfigDir);
+  let stdout = '';
+  try {
+    ({ stdout } = await exec(env.relayBin, args, { timeout: 10000, maxBuffer: 32 << 20 }));
+  } catch (err) {
+    if (err && err.code === 1) return [];
+    throw err;
+  }
+  const rows = [];
+  for (const line of stdout.split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (o && o.event === event && o.session_id === sessionId && o.status === 'ok') rows.push(o);
+  }
+  return rows;
+}
+
+async function agentDropInPi(env) {
+  const id = 'agent-drop-in-pi';
+  const acme = env.world.projects.acme;
+  const name = `verify-${env.nonce}-dropin-pi`;
+  const marker = `verify-${env.nonce}-done`;
+  const desktop = await env.newPage();
+  const states = sessionStates(desktop);
+  await openEve(desktop, env);
+  await waitForModels(desktop, env);
+  env.step('wait for Today');
+  await need('no greeting within 20s', expect(desktop.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 20000 }));
+
+  // The catalogue lists what the user's own Pi config offers, not the stack's, so the model is named from the stack: relay's broker serves pi/relay-router/<id> for the stack's Pi config.
+  const model = `${PI_PREFIX}${env.model}`;
+  const templates = await eveJsonSlow(env, 'GET', `/api/terminal/templates?project=${encodeURIComponent(acme.id)}`).catch(() => null);
+  if (!Array.isArray(templates) || !templates.some((t) => t && t.id === 'pi')) {
+    return result(id, BLOCKED, `${acme.name} lists no pi terminal template`);
+  }
+
+  const sessionsBefore = await acmeIds(env, 'sessions');
+  const terminalsBefore = await acmeIds(env, 'terminals');
+  let sock = null;
+  // Registered before the session exists: whatever appeared is closed and deleted, even on a failure path.
+  // Relay keeps the Pi session file in the stack's config dir, which stack-down removes.
+  env.cleanup(`close the drop-in terminal and delete the ${acme.name} Pi agent session`, async () => {
+    if (sock) sock.close();
+    let failure = null;
+    for (const tid of addedIds(terminalsBefore, await acmeIds(env, 'terminals'))) {
+      await env.api.closeTerminal(tid).catch((err) => { failure = failure || err; });
+    }
+    for (const sid of addedIds(sessionsBefore, await acmeIds(env, 'sessions'))) {
+      await deleteSession(env, sid).catch((err) => { failure = failure || err; });
+    }
+    if (failure) throw failure;
+  });
+
+  env.step('create the headless Pi agent session');
+  sock = await openEveSocket(env);
+  sock.send({ type: 'create_session', projectId: acme.id, model, name, settings: { headless: true, agent: true } });
+  const made = await poll(async () => sock.frames.find((f) => f.type === 'session_created' || f.type === 'error') || null,
+    { timeoutMs: 60000, intervalMs: 200 });
+  if (!made) return result(id, FAIL, `no session_created within 60s of create_session (model ${model})`);
+  if (made.type === 'error') {
+    return /template "/.test(String(made.message))
+      ? result(id, BLOCKED, `launch refused: ${made.message}`)
+      : result(id, FAIL, `create_session failed: ${made.message}`);
+  }
+  const sid = made.sessionId;
+  sock.send({ type: 'join_session', sessionId: sid });
+
+  const frameOf = (state, since) => states.find((f) => f.sessionId === sid && f.state === state && f.at >= since);
+  const seen = (since) => [...new Set(states.filter((f) => f.sessionId === sid && f.at >= since).map((f) => f.state))].join(', ') || 'none';
+  // A turn ends on the session_state frame of the socket's own page, never on a duration.
+  const turn = async (text, label) => {
+    const at = Date.now();
+    sock.send({ type: 'user_input', sessionId: sid, text });
+    const end = await poll(async () => frameOf('idle', at) || frameOf('errored', at) || null, { timeoutMs: 90000, intervalMs: 200 });
+    if (!end) return { problem: `session ${sid}: ${label} did not end within 90s (states ${seen(at)})` };
+    if (end.state !== 'idle') return { problem: `session ${sid}: ${label} ended ${end.state}, not idle` };
+    return { at };
+  };
+
+  env.step('send turn 1');
+  const first = await turn(`Reply with exactly: ${marker}`, 'turn 1');
+  if (first.problem) return result(id, FAIL, first.problem);
+
+  env.step('look for Drop in under Idle');
+  const drop = desktop.locator('[data-testid="today-agents-group-idle"]').getByTestId(`today-drop-in-${sid}`);
+  await need(`no Drop in showed under Idle for Pi session ${sid}`, expect(drop).toBeVisible({ timeout: 15000 }));
+  env.step('click Drop in');
+  const answerStarted = desktop.waitForResponse(
+    (r) => r.request().method() === 'POST' && r.url().includes(`/api/sessions/${encodeURIComponent(sid)}/drop-in`),
+    { timeout: DROP_IN_TAB_WITHIN_MS },
+  ).then(async (r) => ({ status: r.status(), body: await r.json().catch(() => null) })).catch(() => null);
+  await drop.click({ timeout: 5000 });
+  const answer = await answerStarted;
+  if (!answer) return result(id, FAIL, `session ${sid}: no drop-in answer within ${DROP_IN_TAB_WITHIN_MS / 1000}s of Drop in`);
+  if (answer.status !== 201) return result(id, FAIL, `session ${sid}: drop-in answered ${answer.status}: ${JSON.stringify(answer.body)}`);
+  const terminal = answer.body && answer.body.terminal;
+  if (!answer.body || answer.body.agent !== 'pi') return result(id, FAIL, `session ${sid}: the drop-in answer names agent ${answer.body && answer.body.agent}, not pi`);
+  if (!terminal || terminal.templateId !== 'pi') return result(id, FAIL, `session ${sid}: the drop-in terminal uses template ${terminal && terminal.templateId}, not pi`);
+
+  env.step('wait for the drop-in terminal tab');
+  const tabShown = await poll(async () => (await desktop.locator('.tab.active').and(desktop.locator(`[data-tab-id="${terminal.terminalId}"]`)).count()) ? true : null,
+    { timeoutMs: DROP_IN_TAB_WITHIN_MS, intervalMs: 250 });
+  if (!tabShown) return result(id, FAIL, `session ${sid}: no active tab for terminal ${terminal.terminalId} within ${DROP_IN_TAB_WITHIN_MS / 1000}s of Drop in`);
+  // `relay logs` holds the event after relay answered, so this is a bounded poll of the CLI.
+  if (!await poll(async () => (await okEventsFor(env, 'session.drop_in', sid)).length || null, { timeoutMs: 10000, intervalMs: 500 })) {
+    return result(id, FAIL, `session ${sid}: relay logs hold no ok session.drop_in`);
+  }
+
+  env.step('close the tab');
+  await desktop.locator('.tab.active .tab-close').click({ timeout: 5000 });
+  env.step('wait for hand back');
+  if (!await poll(async () => (await okEventsFor(env, 'session.hand_back', sid)).length || null, { timeoutMs: DROP_IN_IDLE_WITHIN_MS, intervalMs: 500 })) {
+    return result(id, FAIL, `session ${sid}: relay logs hold no ok session.hand_back within ${DROP_IN_IDLE_WITHIN_MS / 1000}s of closing the tab`);
+  }
+  env.step('look for Drop in under Idle again');
+  await need(`Drop in did not show under Idle again for Pi session ${sid} after the tab closed`,
+    expect(desktop.locator('[data-testid="today-agents-group-idle"]').getByTestId(`today-drop-in-${sid}`)).toBeVisible({ timeout: DROP_IN_IDLE_WITHIN_MS }));
+
+  env.step('send turn 2');
+  const second = await turn(`Reply with exactly: ${marker}-2`, 'turn 2');
+  if (second.problem) return result(id, FAIL, second.problem);
+  // Pi streams its reply in small text deltas, so the marker is looked for in the joined text.
+  const sinceTurn2 = sock.frames.filter((f) => f.type === 'llm_event' && f.sessionId === sid && f.at >= second.at && f.event);
+  const replyText = sinceTurn2.filter((f) => f.event.type === 'assistant').map((f) => (f.event.delta && f.event.delta.text) || JSON.stringify(f.event.message || '')).join('');
+  const replied = replyText.includes(`${marker}-2`);
+  if (!replied) {
+    const seenAfter = sock.frames.filter((f) => f.type === 'llm_event' && f.sessionId === sid && f.at >= second.at).map((f) => JSON.stringify(f.event)).join(' | ').slice(0, 600);
+    return result(id, FAIL, `session ${sid}: the reply to turn 2 does not hold ${marker}-2 (events since: ${seenAfter || 'none'})`);
+  }
+
+  return result(id, PASS, `model ${model}: after turn 1 Drop in showed under Idle; the answer named agent pi with template pi and relay logged session.drop_in; `
+    + `closing the tab logged session.hand_back and Drop in showed under Idle again; turn 2 replied with ${marker}-2`);
+}
+
 // — Chief of Staff (G6) --------------------------------------------------------
 
 // Relay's model value for Claude Haiku (internal/sessions/api/models.go); the
@@ -4420,6 +4562,7 @@ const journeys = [
   { id: 'ask-pasted-url', timeoutMs: 90000, areas: ['home', 'chat'], needs: ['project:acme'], run: askPastedUrl },
   { id: 'agent-board-states', claude: true, timeoutMs: 150000, areas: ['home', 'chat'], needs: ['project:acme'], run: agentBoardStates },
   { id: 'agent-drop-in', claude: true, timeoutMs: 150000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropIn },
+  { id: 'agent-drop-in-pi', timeoutMs: 240000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropInPi },
   { id: 'cos-asking-post', claude: true, timeoutMs: 120000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosAskingPost },
   { id: 'cos-tell-sends-marked', claude: true, timeoutMs: 150000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosTellSendsMarked },
   { id: 'cos-reads-project', claude: true, timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosReadsProject },

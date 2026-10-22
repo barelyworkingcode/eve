@@ -399,3 +399,128 @@ test.describe('outside rows on a phone', () => {
     await expect(sheet.getByRole('button', { name: /^Take over/ })).toHaveCount(0);
   });
 });
+
+// Pi and Codex agents come from the same Start card, on chat templates whose model starts pi/ or codex/.
+// The console offers the pi and codex terminal templates; relay drops a local Pi or Codex session into one.
+
+const PI_MODEL = 'pi/relay-router/acme-pi';
+const CODEX_MODEL = 'codex/acme-codex';
+const DROP_PI = /^Drop in to .*Pi Reviewer$/;
+const DROP_CODEX = /^Drop in to .*Codex Reviewer$/;
+
+function piCodexWorld() {
+  const w = agentWorld();
+  w.models = [
+    { value: PI_MODEL, label: 'Acme Pi', group: 'Pi', provider: 'pi', reply: { kind: 'echo' } },
+    { value: CODEX_MODEL, label: 'Acme Codex', group: 'Codex', provider: 'codex', reply: { kind: 'echo' } },
+  ];
+  w.projects[0].chat_templates = [
+    { id: 't_pi', name: 'Pi Reviewer', model: PI_MODEL },
+    { id: 't_codex', name: 'Codex Reviewer', model: CODEX_MODEL },
+  ];
+  w.terminal_templates = [
+    { id: 'pi', name: 'Pi', command: '/bin/sh', description: 'Pi terminal' },
+    { id: 'codex', name: 'Codex', command: '/bin/sh', description: 'Codex terminal' },
+  ];
+  return w;
+}
+
+function hostCodexWorld() {
+  const w = piCodexWorld();
+  w.hosts = [{
+    id: 'h_box',
+    name: 'testbox',
+    target: 'acme@testbox',
+    probe: { at: '2026-10-09T10:00:00Z', ok: true, os: 'Linux', arch: 'x86_64', home: '/home/acme', shell: '/bin/bash', tmux_path: '/usr/bin/tmux' },
+    tmux_path: '/usr/bin/tmux',
+    agent: 'connected',
+    terminal_templates: [{ id: 'codex', name: 'Codex', command: '/bin/sh', description: 'Codex terminal' }],
+  }];
+  w.projects.push({
+    id: 'p_box', name: 'Orchard', host_id: 'h_box', path: '/home/acme/orchard', mode: 'work',
+    chat_templates: [{ id: 't_box_codex', name: 'Codex Reviewer', model: CODEX_MODEL }],
+  });
+  return w;
+}
+
+function entryCard(entry, project = { id: 'p_acme', name: 'Acme' }) {
+  const post = startCard();
+  post.card.project = project;
+  post.card.entry = entry;
+  return post;
+}
+
+test.describe('a headless Pi agent', () => {
+  test.use({ world: piCodexWorld(), cosPosts: [entryCard('Pi Reviewer')] });
+
+  test('a headless Pi agent offers Drop in and opens its terminal @G6.23 @G6.41', async ({ eve, page, relay }) => {
+    await eve.open('/');
+    await openCos(page);
+    await startAgent(page, relay);
+    const drop = railOf(page).getByRole('button', { name: DROP_PI });
+    await expect(drop).toBeEnabled();
+    const board = await eve.openAnother('/');
+    await expect(board.getByRole('heading', { name: /^Idle/, level: 4 })).toBeVisible();
+    await expect(board.getByRole('button', { name: DROP_PI })).toBeVisible();
+    await drop.click();
+    await relay.waitForEvent('session.drop_in', { match: (l) => l.status === 'ok' });
+    await expect(selectedDropTab(page)).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+test.describe('a headless Codex agent', () => {
+  test.use({ world: piCodexWorld(), cosPosts: [entryCard('Codex Reviewer')] });
+
+  test('a headless Codex agent offers Drop in on the rail @G6.41', async ({ eve, page, relay }) => {
+    await eve.open('/');
+    await openCos(page);
+    await startAgent(page, relay);
+    await expect(railOf(page).getByRole('heading', { name: /^Idle/ })).toBeVisible();
+    await expect(railOf(page).getByRole('button', { name: DROP_CODEX })).toBeEnabled();
+  });
+});
+
+test.describe('a Codex agent on an SSH host', () => {
+  test.use({ world: hostCodexWorld(), cosPosts: [entryCard('Codex Reviewer', { id: 'p_box', name: 'Orchard' })] });
+
+  test('a Codex agent on an SSH host has no Drop in @G6.41.r2', async ({ eve, page, relay }) => {
+    await eve.open('/');
+    await openCos(page);
+    await startAgent(page, relay);
+    const rail = railOf(page);
+    // The Idle group holding the agent is the marker that the rail has loaded its row.
+    await expect(rail.getByRole('heading', { name: /^Idle/ })).toBeVisible();
+    await expect(rail.getByRole('button', { name: 'Codex Reviewer', exact: true })).toBeVisible();
+    await expect(rail.getByRole('button', { name: /^Drop in to / })).toHaveCount(0);
+    await expect(rail.getByRole('button', { name: /^Take over / })).toHaveCount(0);
+  });
+});
+
+// A Codex agent on an SSH host whose provider exits at launch goes errored, and eve posts its alert card.
+// Relay refuses a drop-in on a host session, so the card opens the thread instead and relay logs no drop-in.
+
+function exitingHostWorld() {
+  const w = hostCodexWorld();
+  w.models = w.models.map((m) => (m.value === CODEX_MODEL
+    ? { ...m, reply: { kind: 'exit', code: 127, stderr: ['env: /opt/acme/bin/codex: No such file or directory'] } }
+    : m));
+  return w;
+}
+
+test.describe('an errored Codex agent on an SSH host', () => {
+  test.use({ world: exitingHostWorld(), cosPosts: [entryCard('Codex Reviewer', { id: 'p_box', name: 'Orchard' })] });
+
+  test('a Codex agent on an SSH host opens its thread from its alert card @G6.47.r2', async ({ eve, page, relay }) => {
+    await eve.open('/');
+    await openCos(page);
+    await startAgent(page, relay);
+    const other = await eve.openAnother('/');
+    await openCos(other);
+    const post = other.getByRole('article').filter({ has: other.getByRole('heading', { name: 'Codex Reviewer stopped with an error' }) });
+    await expect(post).toBeVisible();
+    await post.getByRole('button', { name: 'Drop in', exact: true }).click();
+    await expect(other.getByRole('tab', { name: /Codex Reviewer/ })).toBeVisible();
+    await expect(other.getByRole('textbox', { name: /^Type / })).toBeVisible();
+    expect(await relay.logs({ event: 'session.drop_in' })).toHaveLength(0);
+  });
+});

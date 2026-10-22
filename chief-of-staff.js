@@ -891,6 +891,8 @@ class ChiefOfStaff {
       model: typeof s.model === 'string' ? s.model : '',
       headless: s.headless === true,
       origin: typeof s.origin === 'string' ? s.origin : '',
+      host: s.host && typeof s.host === 'object' && typeof s.host.id === 'string' && s.host.id
+        ? { id: s.host.id, name: typeof s.host.name === 'string' ? s.host.name : '' } : null,
       state: att ? att.state : null,
       since: att && typeof att.since === 'string' ? att.since : '',
     };
@@ -1471,6 +1473,7 @@ class ChiefOfStaff {
       quote: cut(event.excerpt, QUOTE_MAX),
       headless: row.headless === true,
       model: row.model || '',
+      host: row.host || null,
       actions: event.state === 'asking' || event.state === 'question'
         ? ['answer', 'drop_in', 'open'] : ['drop_in', 'open'],
     };

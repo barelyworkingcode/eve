@@ -156,6 +156,7 @@ class AgentBoard {
   static live = new Set();
   // relay's deriveSessionKind: these models are Claude sessions.
   static CLAUDE_MODELS = ['haiku', 'sonnet', 'opus'];
+  static DROP_IN_PREFIXES = ['pi/', 'codex/'];
   static DROP_IN_SIZE = { cols: 80, rows: 24 };
   // sessionId -> 'drop' | 'wait': a drop-in in flight, shared by every board. The kind is
   // fixed at the tap, so the busy text does not change when the row changes group.
@@ -293,10 +294,17 @@ class AgentBoard {
     return AgentBoard.CLAUDE_MODELS.includes(session?.model);
   }
 
-  // The one place the Drop in rule lives: a headless Claude session that needs me or is
+  // Relay's own kind rule: a Claude alias anywhere, or a pi/ or codex/ model on this Mac.
+  static takesDropIn(session) {
+    if (AgentBoard.isClaude(session)) return true;
+    const model = typeof session?.model === 'string' ? session.model : '';
+    return !session?.host && AgentBoard.DROP_IN_PREFIXES.some(p => model.startsWith(p));
+  }
+
+  // The one place the Drop in rule lives: a headless Claude, Pi or Codex session that needs me or is
   // idle, or a working one (Take over after the turn) that this page does not already hold.
   static showsDropIn(r) {
-    if (r.kind !== 'session' || !AgentBoard.isClaude(r.item) || r.item.headless !== true) return false;
+    if (r.kind !== 'session' || !AgentBoard.takesDropIn(r.item) || r.item.headless !== true) return false;
     return AgentBoard.dropping.has(r.id) || r.group === 'needs' || r.group === 'idle'
       || (r.group === 'working' && !AgentBoard.held.has(r.id));
   }

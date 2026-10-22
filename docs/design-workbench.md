@@ -253,3 +253,9 @@ The board becomes the shared component for a third mount, the Chief of Staff rai
 - **`held`.** `AgentBoard.held` maps a session id to the terminal a drop-in on this page opened. `collect()` drops an entry once that terminal is gone or stopped. Another page or device still shows Take over and gets relay's `dropped_in` refusal.
 - **`onOpen` timing.** A row's Drop in or Take over calls `onOpen(row)` when relay answers (terminal or refusal), not at the tap, so the phone sheet stays open on the waiting text. A row tap is unchanged.
 - **Refusal.** The existing error toast, text collapsed to one line.
+
+## Amended by eve#610
+
+- **Rule.** `AgentBoard.takesDropIn(session)` replaces the Claude-only test in `showsDropIn(r)`: a Claude alias on any host, or a `pi/` or `codex/` model on this Mac (no `host`), takes Drop in and Take over. It follows relay's own kind rule. A Pi or Codex session on an SSH host shows neither, since relay refuses it with `not_local`.
+- **Alert card.** The Chief of Staff alert card's Drop in calls the same predicate, with the card's `model` and `host`; eve copies `host` from relay's list row onto the roster row and the card; any other session opens its thread.
+- **Wire.** Unchanged: `POST /api/sessions/:id/drop-in` with `{cols, rows}`; Eve reads only `terminal`. No new route, frame or setting.
