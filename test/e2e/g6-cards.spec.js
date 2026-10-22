@@ -54,7 +54,11 @@ async function runBriefOnce(page, reply = 'Here you go.') {
   await expect(page.getByRole('heading', { level: 1, name: /^(Good|Working)/ })).toBeVisible();
 }
 
+// The Morning brief part is not shown on Today since eve#615; its tests are skipped.
+const SKIPPED = 'not shown on Today since eve#615; returns with its own journey';
+
 test.describe('a brief that reads', () => {
+  test.skip(true, SKIPPED);
   test.use({ world: briefWorld(READABLE) });
 
   test('read the Morning brief\'s last run @G6.9', async ({ eve, page }) => {
@@ -88,6 +92,7 @@ test.describe('a brief that reads', () => {
 });
 
 test.describe('a brief eve cannot read', () => {
+  test.skip(true, SKIPPED);
   test.use({ world: briefWorld('I could not find anything.') });
 
   test('an unreadable brief says so @G6.9.r2', async ({ eve, page }) => {
@@ -99,6 +104,7 @@ test.describe('a brief eve cannot read', () => {
 });
 
 test.describe('no brief yet', () => {
+  test.skip(true, SKIPPED);
   test.use({ world: briefWorld(READABLE) });
 
   test('no run yet says when it runs @G6.9.r1', async ({ eve, page }) => {
@@ -122,6 +128,7 @@ async function makeBriefOnClaude(page) {
 }
 
 test.describe('a brief on another model', () => {
+  test.skip(true, SKIPPED);
   test.use({ world: localModels('local-a') });
 
   test('switch the Morning brief to a local model @G6.11', async ({ eve, page }) => {

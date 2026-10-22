@@ -1,6 +1,9 @@
 const { test, expect } = require('./support/fixtures');
 const worlds = require('./support/worlds');
 
+// Every test here drives the Morning brief part of Today, which is not shown since eve#615.
+test.skip(true, 'not shown on Today since eve#615; returns with its own journey');
+
 const SETUP = 'Get a morning brief in Acme every day at 07:00.';
 
 function localModels(...values) {

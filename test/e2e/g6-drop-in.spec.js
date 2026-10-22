@@ -84,6 +84,12 @@ async function expectPhoneDropTerminal(page) {
   await expect(page.getByText('Acme - Reviewer (drop-in)', { exact: true }).filter({ visible: true })).toBeVisible();
 }
 
+// A second page opened on the Acme Project page, whose Agents section is the board
+// (Today has not listed the agents since eve#615).
+function openBoard(eve) {
+  return eve.openAnother('/#project/p_acme');
+}
+
 async function openCos(page) {
   // Below 600px the Bottom bar is the door a person taps.
   const compact = page.viewportSize().width < 600;
@@ -128,10 +134,10 @@ async function holdFromPageA(page, relay) {
 test.describe('an idle agent', () => {
   test.use({ world: agentWorld(), cosPosts: [startCard()] });
 
-  test('Today offers Drop in to an idle agent @G6.23', async ({ eve, page, relay }) => {
+  test('the Project page offers Drop in to an idle agent @G6.23', async ({ eve, page, relay }) => {
     await eve.open('/');
     await startIdleOnWide(page, relay);
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     await expect(board.getByRole('heading', { name: /^Idle/, level: 4 })).toBeVisible();
     await expect(board.getByRole('button', { name: DROP })).toBeVisible();
   });
@@ -146,10 +152,10 @@ test.describe('an idle agent', () => {
   test('a thread that is not a headless agent has no Drop in @G6.23.r3', async ({ eve, page, relay }) => {
     await eve.open('/');
     await startIdleOnWide(page, relay);
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     // The agent's button is the marker that the board has loaded both rows.
     await expect(board.getByRole('button', { name: DROP })).toBeVisible();
-    // Today also lists Ledger under Continue; the board's row is the one that reads its state.
+    // The Threads list also lists Ledger; the board's row is the one that reads its state.
     await expect(board.getByRole('button', { name: 'Ledger', exact: true }).filter({ hasText: 'idle' })).toBeVisible();
     await expect(board.getByRole('button', { name: /^Drop in to Ledger/ })).toHaveCount(0);
     await expect(board.getByRole('button', { name: /^Take over Ledger/ })).toHaveCount(0);
@@ -184,7 +190,7 @@ test.describe('an idle agent', () => {
   test('closing the terminal hands the agent back to Idle with its Drop in @G6.24', async ({ eve, page, relay }) => {
     await eve.open('/');
     await holdFromPageA(page, relay);
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     // Working counts the headless agent and the drop-in terminal row that holds it.
     await expect(board.getByRole('heading', { name: 'Working 2', level: 4 })).toBeVisible();
     await page.getByRole('button', { name: CLOSE_DROP }).click();
@@ -197,7 +203,7 @@ test.describe('an idle agent', () => {
   test('the button reads Dropping in until relay answers @G6.23', async ({ eve, page, relay }) => {
     await eve.open('/');
     await startIdleOnWide(page, relay);
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     const drop = board.getByRole('button', { name: DROP });
     await expect(drop).toBeVisible();
     const faultId = await holdSlow(relay);
@@ -214,7 +220,7 @@ test.describe('an idle agent', () => {
   test('a tool is running: one line with relay\'s reason @G6.23.r1', async ({ eve, page, relay }) => {
     await eve.open('/');
     await startIdleOnWide(page, relay);
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     const drop = board.getByRole('button', { name: DROP });
     await expect(drop).toBeVisible();
     await refuseWith(relay, { error: 'tool_running', message: 'a tool is running (Bash); wait for it to finish or stop the turn, then try again' });
@@ -227,7 +233,7 @@ test.describe('an idle agent', () => {
   test('no conversation yet: one line with relay\'s reason @G6.23.r1', async ({ eve, page, relay }) => {
     await eve.open('/');
     await startIdleOnWide(page, relay);
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     const drop = board.getByRole('button', { name: DROP });
     await expect(drop).toBeVisible();
     await refuseWith(relay, { error: 'no_conversation', message: 'the session has not run a turn yet;\n  there is nothing to take over' });
@@ -247,7 +253,7 @@ test.describe('a working agent', () => {
   test('Take over waits for the turn to end, then opens a terminal @G6.105', async ({ eve, page, relay }) => {
     await eve.open('/');
     await holdFromPageA(page, relay);
-    const other = await eve.openAnother('/');
+    const other = await openBoard(eve);
     await expect(other.getByRole('heading', { name: /^Working/, level: 4 })).toBeVisible();
     const take = other.getByRole('button', { name: TAKE });
     await expect(take).toBeVisible();
@@ -277,7 +283,7 @@ test.describe('a working agent', () => {
   test('relay refuses a take over while another terminal holds it @G6.105.r1', async ({ eve, page, relay }) => {
     await eve.open('/');
     await holdFromPageA(page, relay);
-    const other = await eve.openAnother('/');
+    const other = await openBoard(eve);
     const take = other.getByRole('button', { name: TAKE });
     await expect(take).toBeVisible();
     await take.click();
@@ -290,7 +296,7 @@ test.describe('a working agent', () => {
     await eve.open('/');
     await holdFromPageA(page, relay);
     // Another page shows Take over for the same session: that is the marker that the group is Working.
-    const other = await eve.openAnother('/');
+    const other = await openBoard(eve);
     await expect(other.getByRole('button', { name: TAKE })).toBeVisible();
     await page.getByRole('tab', { name: 'Chief of Staff', exact: true }).click();
     const rail = railOf(page);
@@ -319,12 +325,12 @@ test.describe('outside rows', () => {
 test.describe('on a tablet', () => {
   test.use({ ...profiles.tablet, world: agentWorld(), cosPosts: [startCard()] });
 
-  test('tap Drop in on Today, type into the terminal, close it @G6.23', async ({ eve, page, relay }) => {
+  test('tap Drop in on the Project page, type into the terminal, close it @G6.23', async ({ eve, page, relay }) => {
     await eve.open('/');
     // The agent is started from a wide window; the board below is read at tablet width.
     await page.setViewportSize({ width: 1280, height: 800 });
     await startIdleOnWide(page, relay);
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     const drop = board.getByRole('button', { name: DROP });
     await expect(drop).toBeVisible();
     await drop.tap();
@@ -363,7 +369,7 @@ test.describe('on a phone', () => {
     await eve.open('/');
     await openCos(page);
     await startAgent(page, relay);
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     await board.getByRole('button', { name: DROP }).tap();
     await relay.waitForEvent('session.drop_in', { match: (l) => l.status === 'ok' });
     await expectPhoneDropTerminal(board);
@@ -459,7 +465,7 @@ test.describe('a headless Pi agent', () => {
     await startAgent(page, relay);
     const drop = railOf(page).getByRole('button', { name: DROP_PI });
     await expect(drop).toBeEnabled();
-    const board = await eve.openAnother('/');
+    const board = await openBoard(eve);
     await expect(board.getByRole('heading', { name: /^Idle/, level: 4 })).toBeVisible();
     await expect(board.getByRole('button', { name: DROP_PI })).toBeVisible();
     await drop.click();

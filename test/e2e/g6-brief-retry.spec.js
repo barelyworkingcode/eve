@@ -1,6 +1,9 @@
 const { test, expect } = require('./support/fixtures');
 const worlds = require('./support/worlds');
 
+// The test drives the Morning brief part of Today, which is not shown since eve#615.
+test.skip(true, 'not shown on Today since eve#615; returns with its own journey');
+
 const BRIEF = {
   brief: 1,
   events: [{ time: '09:30', title: 'Standup with Acme', note: 'Room 4' }],
