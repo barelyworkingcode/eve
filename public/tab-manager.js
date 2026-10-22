@@ -730,7 +730,7 @@ class TabManager {
       const tabProjectId = this._tabProjectId(tab);
       // An outside viewer, or the drop-in terminal of a session relay runs unsandboxed, in no project
       // shows in every project, so it can always be reached and closed.
-      const unsandboxed = this.app.terminalManager?.allTerminals?.get(tab.id)?.unsandboxed === true;
+      const unsandboxed = AgentBoard.isUnsandboxed({ kind: 'terminal', item: this.app.terminalManager?.allTerminals?.get(tab.id) });
       if (this._activeProjectId && !panes.type(tab.type)?.global && tabProjectId !== this._activeProjectId
         && !((tab.outside || unsandboxed) && !tabProjectId)) {
         continue;
