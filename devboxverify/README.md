@@ -1120,6 +1120,47 @@ transcript.
 - Traps: BLOCKED setup V-COS; no NOTRUN path. Run it alone:
   `node devboxverify/main.js --only outside-adopt`.
 
+**outside-adopt-pi.** An idle outside Pi is adopted from the rail (G6.107, simple
+path). Not a screen journey (480 s). BLOCKED for a relay with no outside inventory, for
+no relay binary, when tmux or `pi` is not on PATH, when Acme Corp's terminal templates
+lack `pi` (the stack seed needs devboxWorld#52), and, in a stack run with a Claude model (the broker), when
+stack.json names no `pi_agent_dir` (devboxWorld#51). It makes a scratch folder in Acme
+Corp and starts `pi "Reply with exactly verify-<nonce>-pi-1"` in tmux. With `pi_agent_dir`
+the start line carries `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR` and
+`PI_STACK_KEY` (read from the broker token file by the shell, never in argv); the first
+reply must then come from provider `relay` and model `pi_model`. The first reply is a
+bounded poll of the transcript (BLOCKED when it never comes). The idle row must show
+`Adopt <name>`; one tap must answer 201 with a `sessionId`. The Outside row must leave,
+the tmux session must end, a turn sent from Eve's thread (`verify-<nonce>-pi-2`) must be
+answered in Eve and land in the same transcript file, which must grow, with one `.jsonl`
+in the folder, and `relay audit --event session_adopt` must hold a `pi` intent and an ok
+completion. Cleanup deletes the adopted session, removes the Pi transcript folder only when its
+name holds this run's nonce, and ends tmux; the usual one removes the scratch folder.
+- Lives in: `public/agent-board.js`; `routes/index.js` (adopt route); relay's `POST /api/sessions/adopt`.
+- Traps: BLOCKED setup V-COS; no NOTRUN path. Run it alone:
+  `node devboxverify/main.js --only outside-adopt-pi`.
+
+**outside-adopt-codex.** An idle Codex terminal on the per-user daemon is adopted from
+the rail and keeps running (G6.107). Not a screen journey (480 s). BLOCKED for a relay
+with no outside inventory, for no relay binary, when tmux or the daemon's own codex
+binary (`~/.codex/packages/app-server-daemon/current/bin/codex`) is missing, when the
+control socket is absent ("no codex daemon"), and when Acme Corp's templates lack `codex`.
+It starts `codex --remote unix:// -C <dir> -a on-request -s read-only` in tmux (the
+daemon's binary: a codex of another version runs its own server and lists no row),
+answers the folder-trust prompt with one Enter, and waits on the pane for the reply
+(`verify-<nonce>-cx-1` twice and a `Worked for` line; BLOCKED when it never comes). One
+tap must answer 201; the Outside row must leave; the tmux session must stay with the
+same pane pid; a turn sent from Eve's thread must be answered in Eve and show in the
+pane; the control socket must keep its device and inode; and audit must hold a `codex`
+`session_adopt` intent with `method: "attach"` and `relay_sandbox: false`, and an ok
+completion. Cleanup deletes the adopted session and ends tmux (two `C-c`, then
+`kill-session`). Nothing in `~/.codex` is removed: the daemon owns that store, and each run
+leaves its rollout and a folder-trust entry there. It spends the box's codex login on two
+short turns.
+- Lives in: `public/agent-board.js`; `routes/index.js` (adopt route); relay's `POST /api/sessions/adopt`.
+- Traps: BLOCKED setup V-COS; no NOTRUN path. Run it alone:
+  `node devboxverify/main.js --only outside-adopt-codex`.
+
 **cos-outside-hooks.** An outside Claude's hook report moves its row at once
 (G6.93, power path). Not a screen journey (360 s). Same BLOCKED
 rule for a relay with no outside inventory. It makes a scratch git folder in Acme

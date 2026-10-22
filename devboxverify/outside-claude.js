@@ -45,6 +45,16 @@ function shellPrefix(env) {
   return `${guard}ANTHROPIC_BASE_URL=${quote(b.baseUrl)} ANTHROPIC_DEFAULT_HAIKU_MODEL=${quote(b.model)} ANTHROPIC_AUTH_TOKEN="$(cat ${quote(b.tokenFile)})" `;
 }
 
+// The same for the outside pi: where its agent dir and transcripts live, and the broker key it reads as PI_STACK_KEY.
+// Returns '' when the stack names no pi_agent_dir. sessionDir keeps the transcript where relay's adopt discovery reads it.
+function piShellPrefix(env, sessionDir) {
+  const s = env && env.stack;
+  if (!s || !s.piAgentDir) return '';
+  if (!s.claudeTokenFile) return '';
+  const guard = `[ -s ${quote(s.claudeTokenFile)} ] || { echo ${quote(`the broker token file ${s.claudeTokenFile} is empty or unreadable`)} >&2; exit 1; }; `;
+  return `${guard}PI_CODING_AGENT_DIR=${quote(s.piAgentDir)} PI_CODING_AGENT_SESSION_DIR=${quote(sessionDir)} PI_STACK_KEY="$(cat ${quote(s.claudeTokenFile)})" `;
+}
+
 // Writes <dir>/.claude/settings.local.json for a stack run; a run without a broker writes nothing.
 async function writeOutsideSettings(env, dir) {
   if (!brokerOf(env)) return null;
@@ -54,4 +64,4 @@ async function writeOutsideSettings(env, dir) {
   return file;
 }
 
-module.exports = { cleanEnv, outsideClaudeEnv, shellPrefix, writeOutsideSettings, SETTINGS_LOCAL };
+module.exports = { cleanEnv, outsideClaudeEnv, shellPrefix, piShellPrefix, writeOutsideSettings, SETTINGS_LOCAL };

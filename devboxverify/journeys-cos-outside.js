@@ -108,7 +108,7 @@ async function eveJsonSlow(env, method, urlPath, body) {
 
 // — tmux and the outside claude ---------------------------------------------
 
-const { cleanEnv, outsideClaudeEnv, shellPrefix, writeOutsideSettings } = require('./outside-claude');
+const { cleanEnv, outsideClaudeEnv, shellPrefix, piShellPrefix, writeOutsideSettings } = require('./outside-claude');
 
 function onPath(name) {
   for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
@@ -191,13 +191,22 @@ async function endClaude(tools, name) {
   tools.sessions = tools.sessions.filter((n) => n !== name);
 }
 
-function newTools(env, id) {
+// The terminal codex that shares the per-user daemon's server: another version would run a server of its own and list no row.
+const codexDaemonBin = () => path.join(os.homedir(), '.codex', 'packages', 'app-server-daemon', 'current', 'bin', 'codex');
+
+// agent names the binary the problem check requires: claude, pi or codex (the daemon's own binary, not one on PATH).
+function newTools(env, id, { agent = 'claude' } = {}) {
   const { claudeRunning, removeTranscript, runMarks, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
   const tools = { tmux: onPath('tmux'), claude: onPath('claude'), sessions: [], dirs: [], problem: '' };
   tools.claudeIds = [];
   tools.journey = id;
+  if (agent === 'pi') tools.pi = onPath('pi');
+  if (agent === 'codex') {
+    tools.codex = codexDaemonBin();
+    try { fs.accessSync(tools.codex, fs.constants.X_OK); } catch { tools.codex = ''; }
+  }
   if (!tools.tmux) tools.problem = 'tmux is not on PATH';
-  else if (!tools.claude) tools.problem = 'claude is not on PATH';
+  else if (!tools[agent]) tools.problem = agent === 'codex' ? `the daemon's codex ${codexDaemonBin()} is not executable` : `${agent} is not on PATH`;
   env.cleanup(`${id}: end the outside claude sessions and remove the scratch folders`, async () => {
     const failures = [];
     for (const name of tools.sessions.slice()) {
@@ -892,6 +901,286 @@ async function outsideAdopt(env) {
     + `the claude in the tmux pane exited, and relay audit holds a session_adopt row with outcome ok`);
 }
 
+// — adopt a Pi or a Codex (G6.107) -------------------------------------------------
+
+// Pi keeps a conversation under <home>/.pi/agent/sessions/--<real dir, separators as "-">--. The one rule for reads and cleanup.
+function piTranscriptDir(realDir) {
+  const name = String(realDir).replace(/^\//, '').replace(/[/\\:]/g, '-');
+  return path.join(os.homedir(), '.pi', 'agent', 'sessions', `--${name}--`);
+}
+
+const countOf = (text, needle) => String(text).split(needle).length - 1;
+
+// Waits: the idle row from the captured frames, the button by locator, the adopt answer by waitForResponse.
+async function adoptRow(page, seen, base) {
+  const listed = await poll(async () => seen.sessions.find((s) => s.state === 'idle' && String(s.directory || '').includes(base)) || null,
+    { timeoutMs: ROW_WITHIN_MS + IDLE_WITHIN_MS, intervalMs: 500 });
+  if (!listed) {
+    const rows = seen.sessions.filter((s) => String(s.directory || '').includes(base)).map((s) => [s.agent, s.state, s.adoptable, s.adoptReason]);
+    return { verdict: FAIL, detail: `no cos_outside_sessions frame listed an idle session in ${base} within ${(ROW_WITHIN_MS + IDLE_WITHIN_MS) / 1000}s; rows: ${JSON.stringify(rows)}` };
+  }
+  const adoptButton = page.getByTestId(`rail-adopt-${listed.id}`);
+  const shown = await expect(adoptButton).toBeVisible({ timeout: ROW_WITHIN_MS }).then(() => true, () => false);
+  if (!shown) {
+    return { verdict: FAIL, detail: `the idle row for ${base} shows no Adopt button (adoptable: ${JSON.stringify(listed.adoptable)}, reason: ${JSON.stringify(listed.adoptReason)})` };
+  }
+  const name = ((await adoptButton.getAttribute('aria-label')) || '').replace(/^Adopt /, '');
+  const sentAt = Date.now();
+  const answered = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes(`/api/outside-sessions/${encodeURIComponent(listed.id)}/adopt`), { timeout: 90000 })
+    .then(async (r) => ({ status: r.status(), body: await r.json().catch(() => null) })).catch(() => null);
+  await adoptButton.click({ timeout: 5000 });
+  const answer = await answered;
+  return { listed, name, sentAt, answer: answer || { status: 0, body: null } };
+}
+
+// relay's session_adopt rows since the tap for one agent: whether an intent and an ok completion exist, and their args merged.
+// Waits: none possible: relay writes the completion after it answers. A bounded poll of the CLI.
+async function adoptAudit(env, sentAt, agent) {
+  const cfg = env.relayConfigDir ? ['--config-dir', env.relayConfigDir] : [];
+  const out = await poll(async () => {
+    const { stdout } = await exec(env.relayBin, [...cfg, 'audit', '--event', 'session_adopt', '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 });
+    const got = { intent: false, ok: false, args: {} };
+    for (const line of stdout.split('\n')) {
+      let o;
+      try { o = JSON.parse(line); } catch { continue; }
+      if (!o || o.event !== 'session_adopt' || !(Date.parse(o.ts) >= sentAt - 1000) || !o.args || o.args.agent !== agent) continue;
+      if (o.phase === 'intent') got.intent = true;
+      if (o.phase === 'completion' && o.outcome === 'ok') got.ok = true;
+      got.args = { ...got.args, ...o.args };
+    }
+    return got.intent && got.ok ? got : null;
+  }, { timeoutMs: 20000, intervalMs: 1000 });
+  return out || { intent: false, ok: false, args: {} };
+}
+
+// Sends one turn from the managed session's thread in Eve, as a person does. True when an assistant message holds the text's marker.
+async function sendFromThread(page, sessionId, text) {
+  const marker = (/verify-\S+/.exec(text) || [text])[0];
+  await page.getByTestId(`rail-agent-${sessionId}`).click({ timeout: 15000 });
+  const input = page.getByTestId('chat-input');
+  await expect(input).toBeEnabled({ timeout: 30000 });
+  await input.fill(text, { timeout: 5000 });
+  await page.getByTestId('chat-submit').click({ timeout: 5000 });
+  const reply = page.getByTestId('messages-container').getByTestId('message-assistant').filter({ hasText: marker }).first();
+  return expect(reply).toBeVisible({ timeout: 150000 }).then(() => true, () => false);
+}
+
+// The tmux pane of a journey's session, as text. The target form `=name:` names the session exactly.
+const paneText = async (tools, name) => {
+  try { return (await exec(tools.tmux, ['capture-pane', '-p', '-J', '-t', `=${name}:`], { timeout: 10000 })).stdout; } catch { return ''; }
+};
+const hasSession = (tools, name) => exec(tools.tmux, ['has-session', '-t', `=${name}`], { timeout: 10000 }).then(() => true, () => false);
+
+// BLOCKED reason when Acme Corp's terminal templates lack one the journey starts.
+async function templateProblem(env, template, seedNote) {
+  let list;
+  try { list = await eveJson(env, 'GET', `/api/terminal/templates?project=${encodeURIComponent(env.world.projects.acme.id)}`); } catch (err) {
+    return `could not list Acme Corp's terminal templates: ${firstLine(err)}`;
+  }
+  const items = Array.isArray(list) ? list : (list && Array.isArray(list.templates) ? list.templates : []);
+  return items.some((t) => t && t.id === template) ? null : `Acme Corp does not allow the ${template} template${seedNote}`;
+}
+
+// The Pi transcripts of one folder: the .jsonl files, and the first assistant record that holds a marker.
+async function piFiles(sessDir) {
+  const names = await fs.promises.readdir(sessDir).catch(() => []);
+  return names.filter((n) => n.endsWith('.jsonl')).map((n) => path.join(sessDir, n));
+}
+async function piAssistant(file, text) {
+  let body;
+  try { body = await fs.promises.readFile(file, 'utf8'); } catch { return null; }
+  for (const line of body.split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    const m = o && o.message;
+    if (m && m.role === 'assistant' && m.stopReason === 'stop' && JSON.stringify(m.content).includes(text)) return m;
+  }
+  return null;
+}
+
+// A Pi started outside relay in tmux is adopted from the rail (G6.107, Pi). Waits: README, outside-adopt-pi.
+async function outsideAdoptPi(env) {
+  const id = 'outside-adopt-pi';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const tools = newTools(env, id, { agent: 'pi' });
+  if (tools.problem) return result(id, BLOCKED, tools.problem);
+  if (!env.relayBin) return result(id, BLOCKED, 'no relay binary to read the audit with');
+  if (env.stack && env.stack.claudeModel && !env.stack.piAgentDir) {
+    return result(id, BLOCKED, 'the stack names no pi_agent_dir; it needs barelyworkingcode/devboxWorld#51');
+  }
+
+  const marker = `verify-${env.nonce}-pi`;
+  const tmuxName = `verify-${env.nonce}-outside-adopt-pi`;
+  const held = { sessionId: '', sessDir: '' };
+  env.cleanup('end the outside pi pane', async () => { await exec(tools.tmux, ['kill-session', '-t', `=${tmuxName}`], { timeout: 10000 }).catch(() => {}); });
+  // Registered before the tap. The transcript folder goes only when its name holds this run's nonce.
+  env.cleanup('delete the adopted session and remove the pi transcripts', async () => {
+    if (held.sessionId) await require('./journey-kit').deleteSession(env, held.sessionId);
+    if (held.sessDir) {
+      if (!path.basename(held.sessDir).includes(`verify-${env.nonce}-`)) throw new Error(`refusing to remove ${held.sessDir}`);
+      await fs.promises.rm(held.sessDir, { recursive: true, force: true });
+    }
+  });
+
+  const page = await env.newPage();
+  const seen = frames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const blocked = await inventoryProblem(seen) || await templateProblem(env, 'pi', '; the stack seed needs barelyworkingcode/devboxWorld#52');
+  if (blocked) return result(id, BLOCKED, blocked);
+
+  env.step('create the folder');
+  const dir = await kit().scratchFolder(env, 'pi');
+  const real = await fs.promises.realpath(dir);
+  const base = path.basename(dir);
+  const sessDir = piTranscriptDir(real);
+  held.sessDir = sessDir;
+
+  env.step('start pi in tmux');
+  await exec(tools.tmux, ['new-session', '-d', '-s', tmuxName, '-x', '200', '-y', '50', '-c', dir,
+    `${piShellPrefix(env, sessDir)}pi 'Reply with exactly: ${marker}-1'`], { env: cleanEnv(), timeout: 20000 });
+
+  env.step('wait for the outside reply');
+  // Waits: none possible: model output in a vendor TUI has no hook. A bounded poll of the transcript.
+  const first = await poll(async () => {
+    for (const f of await piFiles(sessDir)) { const m = await piAssistant(f, `${marker}-1`); if (m) return { file: f, m }; }
+    return null;
+  }, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
+  if (!first) return result(id, BLOCKED, `the outside pi did not reply ${marker}-1 within ${REPLY_WITHIN_MS / 1000}s (model output)`);
+  const problems = [];
+  if (env.stack && env.stack.piAgentDir && (first.m.provider !== 'relay' || first.m.model !== env.stack.piModel)) {
+    problems.push(`the first reply came from provider ${JSON.stringify(first.m.provider)} model ${JSON.stringify(first.m.model)}, not relay and ${env.stack.piModel}`);
+  }
+  const before = (await fs.promises.stat(first.file)).size;
+
+  env.step('tap Adopt');
+  const adopted = await adoptRow(page, seen, base);
+  if (adopted.verdict) return result(id, adopted.verdict, adopted.detail);
+  const { answer, sentAt } = adopted;
+  held.sessionId = (answer.body && answer.body.sessionId) || '';
+  if (answer.status !== 201 || !held.sessionId) {
+    return result(id, FAIL, `POST /api/outside-sessions/<id>/adopt answered ${answer.status} (${JSON.stringify(answer.body).slice(0, 200)})`);
+  }
+  if (!(await expect(outsideRows(page, base)).toHaveCount(0, { timeout: GONE_WITHIN_MS }).then(() => true, () => false))) problems.push('the Outside row is still on the rail');
+  env.step('wait for the pane to exit');
+  const exited = await poll(async () => ((await hasSession(tools, tmuxName)) ? null : true), { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
+  if (!exited) problems.push('the outside pi pane is still running');
+
+  env.step('send a second turn from Eve');
+  if (!(await sendFromThread(page, held.sessionId, `Reply with exactly: ${marker}-2`))) problems.push(`Eve shows no reply holding ${marker}-2`);
+  // Waits: none possible: a file write after the reply has no hook. A bounded poll of the transcript.
+  const landed = await poll(async () => (await piAssistant(first.file, `${marker}-2`)) || null, { timeoutMs: 30000, intervalMs: 1000 });
+  if (!landed) problems.push('the second reply is not in the original transcript file');
+  const after = (await fs.promises.stat(first.file)).size;
+  if (after <= before) problems.push('the original transcript did not grow');
+  const files = await piFiles(sessDir);
+  if (files.length !== 1) problems.push(`${files.length} transcript files in the folder, not one`);
+
+  env.step('read relay audit');
+  const audit = await adoptAudit(env, sentAt, 'pi');
+  if (!audit.intent || !audit.ok) problems.push('relay audit lacks a pi session_adopt intent plus ok completion');
+
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `the idle Pi row for ${base} showed Adopt; one tap answered 201, the Outside row left, the pane exited, a turn sent from Eve landed in the same transcript file `
+    + `(${before} to ${after} bytes, one file), and audit holds the pi intent and an ok completion`);
+}
+
+// A Codex terminal on the daemon's server is adopted from the rail and keeps running (G6.107, Codex). Waits: README, outside-adopt-codex.
+async function outsideAdoptCodex(env) {
+  const id = 'outside-adopt-codex';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const tools = newTools(env, id, { agent: 'codex' });
+  if (tools.problem) return result(id, BLOCKED, tools.problem);
+  if (!env.relayBin) return result(id, BLOCKED, 'no relay binary to read the audit with');
+  const sock = path.join(os.homedir(), '.codex', 'app-server-control', 'app-server-control.sock');
+  const statSock = async () => { const st = await fs.promises.stat(sock); return `${st.dev}:${st.ino}`; };
+  let sockBefore;
+  try { sockBefore = await statSock(); } catch { return result(id, BLOCKED, `no codex daemon: ${sock} is absent`); }
+
+  const marker = `verify-${env.nonce}-cx`;
+  const tmuxName = `verify-${env.nonce}-outside-adopt-codex`;
+  const held = { sessionId: '' };
+  env.cleanup('delete the adopted session', async () => { if (held.sessionId) await require('./journey-kit').deleteSession(env, held.sessionId); });
+  // Nothing in ~/.codex is removed: the daemon owns that store.
+  env.cleanup('end the outside codex pane', async () => {
+    for (let i = 0; i < 2; i++) await exec(tools.tmux, ['send-keys', '-t', `=${tmuxName}:`, 'C-c'], { timeout: 10000 }).catch(() => {});
+    await exec(tools.tmux, ['kill-session', '-t', `=${tmuxName}`], { timeout: 10000 }).catch(() => {});
+  });
+
+  const page = await env.newPage();
+  const seen = frames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const blocked = await inventoryProblem(seen) || await templateProblem(env, 'codex', '');
+  if (blocked) return result(id, BLOCKED, blocked);
+
+  env.step('create the folder');
+  const dir = await fs.promises.realpath(await kit().scratchFolder(env, 'codex'));
+  const base = path.basename(dir);
+  const quote = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
+
+  env.step('start codex in tmux');
+  await exec(tools.tmux, ['new-session', '-d', '-s', tmuxName, '-x', '200', '-y', '50', '-c', dir,
+    `${quote(tools.codex)} --remote unix:// -C ${quote(dir)} -a on-request -s read-only -c ${quote(`projects."${dir}".trust_level="trusted"`)} ${quote(`Reply with exactly: ${marker}-1`)}`],
+  { env: cleanEnv(), timeout: 20000 });
+  const panePid = (await exec(tools.tmux, ['display-message', '-p', '-t', `=${tmuxName}:`, '#{pane_pid}'], { timeout: 10000 })).stdout.trim();
+
+  env.step('wait for the outside reply');
+  // Waits: none possible: TUI text has no hook. Bounded polls of the pane: the folder-trust prompt (one Enter), then the reply.
+  let answeredTrust = false;
+  const replied = await poll(async () => {
+    const text = await paneText(tools, tmuxName);
+    if (!answeredTrust && /Trust this folder/.test(text)) {
+      answeredTrust = true;
+      await exec(tools.tmux, ['send-keys', '-t', `=${tmuxName}:`, 'Enter'], { timeout: 10000 });
+      return null;
+    }
+    return countOf(text, `${marker}-1`) >= 2 && countOf(text, 'Worked for') >= 1 ? text : null;
+  }, { timeoutMs: REPLY_WITHIN_MS + TRUST_WITHIN_MS, intervalMs: 500 });
+  if (!replied) return result(id, BLOCKED, `the outside codex did not reply ${marker}-1 within ${(REPLY_WITHIN_MS + TRUST_WITHIN_MS) / 1000}s (model output${answeredTrust ? '; a trust prompt was answered' : ''})`);
+  const workedBefore = countOf(replied, 'Worked for');
+
+  env.step('tap Adopt');
+  const adopted = await adoptRow(page, seen, base);
+  if (adopted.verdict) return result(id, adopted.verdict, adopted.detail);
+  const { answer, sentAt } = adopted;
+  held.sessionId = (answer.body && answer.body.sessionId) || '';
+  if (answer.status !== 201 || !held.sessionId) {
+    return result(id, FAIL, `POST /api/outside-sessions/<id>/adopt answered ${answer.status} (${JSON.stringify(answer.body).slice(0, 200)})`);
+  }
+  const problems = [];
+  if (!(await expect(outsideRows(page, base)).toHaveCount(0, { timeout: GONE_WITHIN_MS }).then(() => true, () => false))) problems.push('the Outside row is still on the rail');
+  if (!(await hasSession(tools, tmuxName))) problems.push('the terminal pane ended at adopt');
+  else {
+    const now = await exec(tools.tmux, ['display-message', '-p', '-t', `=${tmuxName}:`, '#{pane_pid}'], { timeout: 10000 }).then((r) => r.stdout.trim(), () => '');
+    if (now !== panePid) problems.push(`the terminal pane pid changed from ${panePid} to ${now || 'nothing'}`);
+  }
+
+  env.step('send a turn from Eve');
+  if (!(await sendFromThread(page, held.sessionId, `Reply with exactly: ${marker}-2`))) problems.push(`Eve shows no reply holding ${marker}-2`);
+  // Waits: none possible: TUI text after the reply has no hook. A bounded poll of the pane.
+  const shownInPane = await poll(async () => {
+    const text = await paneText(tools, tmuxName);
+    return countOf(text, `${marker}-2`) >= 1 && countOf(text, 'Worked for') > workedBefore ? true : null;
+  }, { timeoutMs: 30000, intervalMs: 1000 });
+  if (!shownInPane) problems.push(`the terminal pane does not show the turn ${marker}-2 sent from Eve`);
+  let sockAfter = '';
+  try { sockAfter = await statSock(); } catch { /* reported below */ }
+  if (sockAfter !== sockBefore) problems.push(`the codex control socket changed from ${sockBefore} to ${sockAfter || 'absent'}`);
+
+  env.step('read relay audit');
+  const audit = await adoptAudit(env, sentAt, 'codex');
+  if (!audit.intent || !audit.ok) problems.push('relay audit lacks a codex session_adopt intent plus ok completion');
+  else {
+    if (audit.args.method !== 'attach') problems.push(`the codex session_adopt row has method ${JSON.stringify(audit.args.method)}, not "attach"`);
+    if (audit.args.relay_sandbox !== false) problems.push(`the codex session_adopt row has relay_sandbox ${JSON.stringify(audit.args.relay_sandbox)}, not false`);
+  }
+
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `the idle Codex row for ${base} showed Adopt; one tap answered 201, the Outside row left, the terminal pane kept pid ${panePid} and the control socket kept its inode, `
+    + `a turn sent from Eve was answered and shown in the pane, and audit holds a codex attach intent and an ok completion`);
+}
+
 module.exports = {
   metaProblems,
   journeys: {
@@ -903,6 +1192,12 @@ module.exports = {
     },
     outsideAdopt: {
       id: 'outside-adopt', claude: true, timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdopt,
+    },
+    outsideAdoptPi: {
+      id: 'outside-adopt-pi', timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdoptPi,
+    },
+    outsideAdoptCodex: {
+      id: 'outside-adopt-codex', timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdoptCodex,
     },
     cosOutsideHooks: {
       id: 'cos-outside-hooks', claude: true, timeoutMs: 360000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosOutsideHooks,

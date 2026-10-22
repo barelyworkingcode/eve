@@ -132,7 +132,7 @@ function parseArgs(argv, { toolRoot }) {
 // The part of the stack a journey sees on env.stack.
 function journeyStack(stack, scratchDir) {
   return stack ? {
-    claudeModel: stack.claudeModel, claudeBaseUrl: stack.claudeBaseUrl, claudeTokenFile: stack.claudeTokenFile, relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool, scratchDir,
+    claudeModel: stack.claudeModel, claudeBaseUrl: stack.claudeBaseUrl, claudeTokenFile: stack.claudeTokenFile, piModel: stack.piModel, piAgentDir: stack.piAgentDir, relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool, scratchDir,
   } : null;
 }
 
@@ -162,14 +162,29 @@ function readStack(file, { readFile = fs.readFileSync, statFile = fs.statSync } 
     throw usageError(`--stack ${file}: claude_model must have no surrounding space or control characters`);
   }
   const broker = brokerFields(doc, file, statFile);
+  const pi = piFields(doc, file, broker);
   return {
     ...broker,
+    ...pi,
     claudeModel: doc.claude_model === undefined ? null : doc.claude_model,
     relayCheckout: doc.relay_checkout ? path.normalize(doc.relay_checkout) : null,
     outsideSpool: doc.outside_spool ? path.normalize(doc.outside_spool) : null,
     file, slot: doc.slot, configDir: path.normalize(doc.config_dir), relayBin: doc.relay_bin, marker: doc.marker,
     url: doc.eve_url, dataDir: path.normalize(doc.eve_data_dir), eveHead: head,
   };
+}
+
+// The outside pi's model and agent dir: both or neither, and both need the broker (its key is the pi's key).
+function piFields(doc, file, broker) {
+  const model = doc.pi_model;
+  const dir = doc.pi_agent_dir;
+  if (model === undefined && dir === undefined) return { piModel: null, piAgentDir: null };
+  const bad = (v) => typeof v !== 'string' || !v || v !== v.trim() || /[\x00-\x1f\x7f]/.test(v);
+  if (bad(model)) throw usageError(`--stack ${file}: pi_model is not a clean non-empty string (pi_model and pi_agent_dir come together)`);
+  if (bad(dir)) throw usageError(`--stack ${file}: pi_agent_dir is not a clean non-empty string (pi_model and pi_agent_dir come together)`);
+  if (!path.isAbsolute(dir)) throw usageError(`--stack ${file}: pi_agent_dir is not an absolute path`);
+  if (!broker.claudeBaseUrl || !broker.claudeTokenFile) throw usageError(`--stack ${file}: pi_model needs claude_base_url and claude_token_file`);
+  return { piModel: model, piAgentDir: path.normalize(dir) };
 }
 
 // The outside claude's broker: a base URL and the path of a file holding the bearer (never the bearer).
