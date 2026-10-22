@@ -2876,9 +2876,8 @@ async function agentDropInPi(env) {
   env.step('wait for Today');
   await need('no greeting within 20s', expect(desktop.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 20000 }));
 
-  const offered = await desktop.evaluate((pid) => (window.client.state.modelsForProject(pid) || []).map((m) => m.value), acme.id);
-  const model = offered.find((v) => v === `${PI_PREFIX}${env.model}`) || offered.find((v) => v.startsWith(PI_PREFIX)) || null;
-  if (!model) return result(id, BLOCKED, `${acme.name} offers no ${PI_PREFIX} model`);
+  // The catalogue lists what the user's own Pi config offers, not the stack's, so the model is named from the stack: relay's broker serves pi/relay-router/<id> for the stack's Pi config.
+  const model = `${PI_PREFIX}${env.model}`;
   const templates = await eveJsonSlow(env, 'GET', `/api/terminal/templates?project=${encodeURIComponent(acme.id)}`).catch(() => null);
   if (!Array.isArray(templates) || !templates.some((t) => t && t.id === 'pi')) {
     return result(id, BLOCKED, `${acme.name} lists no pi terminal template`);
