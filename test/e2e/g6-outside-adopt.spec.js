@@ -627,7 +627,9 @@ const looseRow = (over = {}) => liveRow(null, {
   claude_session_id: OTHER_SID,
   ...over,
 });
-const chipsOf = (scope) => scope.getByText(CHIP_TEXT, { exact: true });
+const chipsOf = (scope) => scope.getByRole('img', { name: CHIP_TEXT, exact: true });
+// A row is a button named for the agent; the drop-in terminal's row adds "(drop-in)".
+const rowOf = (scope, name) => scope.getByRole('button', { name, exact: true });
 const bothRows = (dir) => [liveRow(dir), looseRow()];
 
 test.describe('an idle Claude row in no project', () => {
@@ -727,9 +729,14 @@ test.describe('a session relay marks unsandboxed', () => {
     const chip = chipsOf(rail);
     await expect(chip).toHaveCount(1);
     await expect(chip).toBeVisible();
+    await expect(chip).toHaveAccessibleName(CHIP_TEXT);
     await expect(chip).toHaveAccessibleDescription(CHIP_WHY);
     // Not a control: nothing to tap or tab to.
     await expect(rail.getByRole('button', { name: CHIP_TEXT })).toHaveCount(0);
+    // The chip is on the loose row, and the project row beside it has none.
+    await expect(chipsOf(rowOf(rail, 'Loose notes'))).toHaveCount(1);
+    await expect(rowOf(rail, 'Ledger notes')).toBeVisible();
+    await expect(chipsOf(rowOf(rail, 'Ledger notes'))).toHaveCount(0);
   });
 
   test('the chip stays after a reload @G6.109', async ({ eve, page, relay }) => {
@@ -763,6 +770,8 @@ test.describe('a session relay marks unsandboxed', () => {
     await page.getByRole('tab', { name: 'Chief of Staff' }).click();
     await expect(page.getByRole('tab', { name: 'Chief of Staff' })).toHaveAttribute('aria-selected', 'true');
     // The held session row and the drop-in terminal row each carry the chip.
+    await expect(chipsOf(rowOf(rail, 'Loose notes'))).toHaveCount(1);
+    await expect(chipsOf(rowOf(rail, 'Loose notes (drop-in)'))).toHaveCount(1);
     await expect(chipsOf(rail)).toHaveCount(2);
 
     await page.getByRole('button', { name: CLOSE_DROP }).click();
@@ -770,6 +779,8 @@ test.describe('a session relay marks unsandboxed', () => {
     // Hand back: the session is Idle again with its Drop in, and the terminal row is gone.
     await expect(dropIn(rail, 'Loose notes')).toBeVisible();
     await expect(rail.getByRole('heading', { name: /^Idle/ })).toBeVisible();
+    await expect(rowOf(rail, 'Loose notes (drop-in)')).toHaveCount(0);
+    await expect(chipsOf(rowOf(rail, 'Loose notes'))).toHaveCount(1);
     await expect(chipsOf(rail)).toHaveCount(1);
   });
 });

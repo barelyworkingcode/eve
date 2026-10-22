@@ -66,7 +66,7 @@ async function writeOutsideSettings(env, dir) {
 }
 
 // A `verify-<nonce>-<kind>-XXXXXX` folder outside every project of the run, for an outside Claude that relay lists in no
-// project. A stack run keeps it beside its record (stack.scratchDir), any other run in the system temp dir. The path is
+// project. Answers { dir } or { problem } when the folder lands inside a project (a missing precondition, for BLOCKED). A stack run keeps it beside its record (stack.scratchDir), any other run in the system temp dir. The path is
 // resolved, so it matches the text relay reads from the process. Removed by cleanup whatever the verdict.
 async function outsideScratchFolder(env, kind) {
   const root = env.stack ? env.stack.scratchDir : os.tmpdir();
@@ -80,8 +80,8 @@ async function outsideScratchFolder(env, kind) {
     if (path.dirname(dir) !== realRoot || !path.basename(dir).startsWith(prefix)) throw new Error(`refusing to remove "${dir}": not a ${kind} scratch folder`);
     await fs.promises.rm(dir, { recursive: true, force: true });
   });
-  if (holder) throw new Error(`the scratch folder ${dir} lies inside the project folder ${holder}`);
-  return dir;
+  if (holder) return { problem: `the scratch folder ${dir} lies inside the project folder ${holder}, so relay would list the Claude in that project` };
+  return { dir };
 }
 
 module.exports = { outsideScratchFolder, cleanEnv, outsideClaudeEnv, shellPrefix, piShellPrefix, writeOutsideSettings, SETTINGS_LOCAL };

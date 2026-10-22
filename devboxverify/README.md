@@ -1145,11 +1145,12 @@ same `claude --model haiku` in tmux with the stack's broker wiring (BLOCKED when
 never comes). The idle row must show `Adopt <name>`; one tap must answer 201 with a
 `sessionId`. Then `Drop in to <name>` must show under Idle with the chip "Unsandboxed" on
 its row, the Outside row must leave, and `relay audit --event session_adopt` must hold an
-`ok` completion with `no_project: true`. Drop in must open a tab for the terminal relay
+`ok` completion, with `no_project: true` on its intent and completion rows. Drop in must open a tab for the terminal relay
 returns, and the rail must then show two chips (the session row and the terminal row).
 Closing the terminal's tab must bring back `Drop in to <name>` under Idle with one chip, on
-the session row. A cleanup closes the terminal and deletes the adopted session; the usual
-one ends tmux and removes the folder and the transcript.
+the session row. A cleanup closes the terminal, then deletes the adopted session; the usual
+one ends tmux and removes the transcript, and `outsideScratchFolder`'s own cleanup removes the folder. A folder that lands
+inside a project makes the journey BLOCKED.
 - Lives in: `public/agent-board.js`; `routes/index.js` (adopt route); relay's `POST /api/sessions/adopt`; `devboxverify/outside-claude.js` (`outsideScratchFolder`).
 - Traps: BLOCKED setup V-COS; no NOTRUN path. Run it alone:
   `node devboxverify/main.js --only outside-adopt-unsandboxed`.

@@ -901,6 +901,26 @@ async function outsideAdopt(env) {
     + `the claude in the tmux pane exited, and relay audit holds a session_adopt row with outcome ok`);
 }
 
+// relay's session_adopt rows for one Claude conversation since the tap. A Claude row has no `agent` arg (only Pi and Codex
+// rows do), so the conversation id picks them. Waits: none possible: relay writes the completion after it answers. A bounded poll of the CLI.
+async function noProjectAdoptAudit(env, sentAt, claudeId) {
+  const cfg = env.relayConfigDir ? ['--config-dir', env.relayConfigDir] : [];
+  const read = async () => {
+    const { stdout } = await exec(env.relayBin, [...cfg, 'audit', '--event', 'session_adopt', '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 });
+    const got = { intent: false, ok: false, plain: [] };
+    for (const line of stdout.split('\n')) {
+      let o;
+      try { o = JSON.parse(line); } catch { continue; }
+      if (!o || o.event !== 'session_adopt' || !(Date.parse(o.ts) >= sentAt - 1000) || !o.args || o.args.claude_session_id !== claudeId) continue;
+      if (o.args.no_project !== true) got.plain.push(o.phase);
+      if (o.phase === 'intent') got.intent = true;
+      if (o.phase === 'completion' && o.outcome === 'ok') got.ok = true;
+    }
+    return got.intent && got.ok ? got : null;
+  };
+  return (await poll(read, { timeoutMs: 20000, intervalMs: 1000 })) || { intent: false, ok: false, plain: [] };
+}
+
 // G6.109, the simple path: a Claude started in tmux in a folder outside every project is adopted from the rail. Relay
 // runs it with no sandbox and no project policy, so the managed row shows the "Unsandboxed" chip. Drop in puts the chip on
 // the drop-in terminal's row too; closing the terminal hands the agent back and the chip is still on its row. A stack run
@@ -918,9 +938,9 @@ async function outsideAdoptUnsandboxed(env) {
   const marker = `verify-${env.nonce}-unsandboxed`;
   const tmuxName = `verify-${env.nonce}-outside-adopt-unsandboxed`;
   const held = { sessionId: '', terminalId: '' };
-  env.cleanup('delete the adopted session', async () => { if (held.sessionId) await require('./journey-kit').deleteSession(env, held.sessionId); });
-  // Registered after the session's, so the terminal closes first. A terminal the journey already closed is no failure.
+  // Cleanups run in registration order: the terminal closes first, then the session is deleted. A terminal the journey already closed is no failure.
   env.cleanup('close the drop-in terminal', async () => { if (held.terminalId) await env.api.closeTerminal(held.terminalId).catch(() => {}); });
+  env.cleanup('delete the adopted session', async () => { if (held.sessionId) await require('./journey-kit').deleteSession(env, held.sessionId); });
 
   const page = await env.newPage();
   const seen = frames(page);
@@ -930,7 +950,9 @@ async function outsideAdoptUnsandboxed(env) {
   if (blocked) return result(id, BLOCKED, blocked);
 
   env.step('create the folder outside every project');
-  const dir = await outsideScratchFolder(env, 'unsandboxed');
+  const scratch = await outsideScratchFolder(env, 'unsandboxed');
+  if (scratch.problem) return result(id, BLOCKED, scratch.problem);
+  const dir = scratch.dir;
   await gitFolder(dir, `verify-${env.nonce}-unsandboxed`);
   const base = path.basename(dir);
   const started = await startClaude(env, tools, { name: tmuxName, dir, prompt: `Reply with exactly ${marker} and nothing else.`, asPerson: true });
@@ -971,8 +993,10 @@ async function outsideAdoptUnsandboxed(env) {
   }
 
   env.step('read relay audit');
-  const audit = await adoptAudit(env, sentAt, 'claude');
-  if (!audit.ok || audit.args.no_project !== true) problems.push(`relay audit holds no ok session_adopt completion with no_project true since the tap (args ${JSON.stringify(audit.args)})`);
+  const audit = await noProjectAdoptAudit(env, sentAt, claudeId);
+  if (!audit.intent || !audit.ok || audit.plain.length) {
+    problems.push(`relay audit: session_adopt rows for the conversation since the tap need an intent and an ok completion, each with no_project true (intent ${audit.intent}, ok ${audit.ok}, rows without no_project ${audit.plain.length})`);
+  }
 
   env.step('click Drop in');
   const dropAnswered = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes(`/api/sessions/${encodeURIComponent(held.sessionId)}/drop-in`), { timeout: 60000 })
