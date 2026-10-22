@@ -909,7 +909,6 @@ function piTranscriptDir(realDir) {
   return path.join(os.homedir(), '.pi', 'agent', 'sessions', `--${name}--`);
 }
 
-const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 const countOf = (text, needle) => String(text).split(needle).length - 1;
 
 // Waits: the idle row from the captured frames, the button by locator, the adopt answer by waitForResponse.

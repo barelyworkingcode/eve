@@ -1123,7 +1123,7 @@ transcript.
 **outside-adopt-pi.** An idle outside Pi is adopted from the rail (G6.107, simple
 path). Not a screen journey (480 s). BLOCKED for a relay with no outside inventory, for
 no relay binary, when tmux or `pi` is not on PATH, when Acme Corp's terminal templates
-lack `pi` (the stack seed needs devboxWorld#52), and, in a stack run with a broker, when
+lack `pi` (the stack seed needs devboxWorld#52), and, in a stack run with a Claude model (the broker), when
 stack.json names no `pi_agent_dir` (devboxWorld#51). It makes a scratch folder in Acme
 Corp and starts `pi "Reply with exactly verify-<nonce>-pi-1"` in tmux. With `pi_agent_dir`
 the start line carries `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR` and
