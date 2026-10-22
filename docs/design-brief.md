@@ -1,5 +1,7 @@
 # S3a · Morning brief
 
+> **Unregistered by eve#615:** `BriefPart` is not registered on Today, so the card is not shown. `brief-injection-refused` keeps the security half (relay's gate). The part and `today/brief.js` stay in the tree.
+
 Slice S3a of Epic #34 (T3 rest, T7 spike). Intent: `design/homework/index.html`. Builds on S1 (Today parts, modes), SX and S5b ([design-routines.md](design-routines.md)).
 
 ## What it is

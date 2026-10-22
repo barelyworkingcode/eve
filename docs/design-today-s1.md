@@ -1,5 +1,7 @@
 # S1 · Today on the Mac, Work mode
 
+> **Unregistered by eve#615:** Today no longer shows the Morning brief, Needs you, Running and Agents parts. Their files stay and `public/home-screen.js` is the one place that registers them, so each can return. The parts below describe the design, not what Today shows now.
+
 Slice S1 of Epic #34. Delivery order and the epic's acceptance criteria are in
 [#34](https://github.com/barelyworkingcode/eve/issues/34) and its part-contract
 comment; mode semantics are in #38. Design: `design/homework/index.html`.
