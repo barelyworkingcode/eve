@@ -2968,8 +2968,10 @@ async function agentDropInPi(env) {
   env.step('send turn 2');
   const second = await turn(`Reply with exactly: ${marker}-2`, 'turn 2');
   if (second.problem) return result(id, FAIL, second.problem);
-  const replied = sock.frames.some((f) => f.type === 'llm_event' && f.sessionId === sid && f.at >= second.at
-    && f.event && f.event.type !== 'user' && f.event.type !== 'system' && JSON.stringify(f.event).includes(`${marker}-2`));
+  // Pi streams its reply in small text deltas, so the marker is looked for in the joined text.
+  const sinceTurn2 = sock.frames.filter((f) => f.type === 'llm_event' && f.sessionId === sid && f.at >= second.at && f.event);
+  const replyText = sinceTurn2.filter((f) => f.event.type === 'assistant').map((f) => (f.event.delta && f.event.delta.text) || JSON.stringify(f.event.message || '')).join('');
+  const replied = replyText.includes(`${marker}-2`);
   if (!replied) {
     const seenAfter = sock.frames.filter((f) => f.type === 'llm_event' && f.sessionId === sid && f.at >= second.at).map((f) => JSON.stringify(f.event)).join(' | ').slice(0, 600);
     return result(id, FAIL, `session ${sid}: the reply to turn 2 does not hold ${marker}-2 (events since: ${seenAfter || 'none'})`);
