@@ -23,7 +23,6 @@ const OK_WORLD = { model_family: 'haiku' };
 // A row that is still working: relay finds the registry entry busy until the interrupt clears it.
 const BUSY_WORLD = { busy: 'registry_busy', model_family: 'haiku' };
 
-const NO_PROJECT = "Not in a project, so it can't be adopted.";
 const ON_HOST = "On a host, so it can't be adopted here.";
 const NOT_REGISTERED = "Claude keeps no session record for it, so it can't be adopted.";
 const NOT_INTERACTIVE = "Not an interactive session, so it can't be adopted.";
@@ -273,11 +272,10 @@ test.describe('a row relay says is not adoptable', () => {
 
   const refused = (dir) => [
     liveRow(dir),
-    liveRow(dir, { id: oid(11), name: 'Orphan notes', project_id: null, directory: '/elsewhere', adoptable: false, adopt_reason: 'no_project' }),
+    liveRow(dir, { id: oid(11), name: 'Orphan notes', project_id: null, directory: '/elsewhere', adoptable: false, adopt_reason: 'not_registered', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(12), name: 'Orchard review', project_id: 'p_box', host_id: 'h_box', machine: 'testbox', directory: '/home/acme/orchard', adoptable: false, adopt_reason: 'host_unsupported' }),
     liveRow(dir, { id: oid(13), name: 'Piped run', adoptable: false, adopt_reason: 'not_interactive', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(14), name: 'Editor run', state: 'running', adoptable: false, adopt_reason: 'not_command_line', claude_session_id: OTHER_SID }),
-    liveRow(dir, { id: oid(15), name: 'Unfiled run', adoptable: false, adopt_reason: 'not_registered', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(16), name: 'Moved run', adoptable: false, adopt_reason: 'start_mismatch', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(17), name: 'Odd id run', adoptable: false, adopt_reason: 'invalid_id', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(18), name: 'Twin run', adoptable: false, adopt_reason: 'ambiguous', claude_session_id: OTHER_SID }),
@@ -288,7 +286,6 @@ test.describe('a row relay says is not adoptable', () => {
     await expect(adoptButton(scope)).toBeVisible();
     await expect(scope.getByRole('button', { name: 'Orphan notes', exact: true })).toBeVisible();
     await expect(scope.getByRole('button', { name: 'Twin run', exact: true })).toBeVisible();
-    await expect(scope.getByText(NO_PROJECT)).toBeVisible();
     await expect(scope.getByText(ON_HOST)).toBeVisible();
     await expect(scope.getByText(NOT_INTERACTIVE)).toBeVisible();
     await expect(scope.getByText(NOT_COMMAND_LINE)).toBeVisible();
@@ -296,7 +293,7 @@ test.describe('a row relay says is not adoptable', () => {
     await expect(scope.getByText(START_MISMATCH)).toBeVisible();
     await expect(scope.getByText(INVALID_ID)).toBeVisible();
     await expect(scope.getByText(AMBIGUOUS)).toBeVisible();
-    for (const name of ['Orphan notes', 'Orchard review', 'Piped run', 'Editor run', 'Unfiled run', 'Moved run', 'Odd id run', 'Twin run']) {
+    for (const name of ['Orphan notes', 'Orchard review', 'Piped run', 'Editor run', 'Moved run', 'Odd id run', 'Twin run']) {
       await expect(adoptButton(scope, name)).toHaveCount(0);
       await expect(interruptButton(scope, name)).toHaveCount(0);
     }
@@ -577,7 +574,7 @@ test.describe('on a phone, rows relay says are not adoptable', () => {
   test('the sheet shows each line and no button @G6.107.r1', async ({ eve, page, relay }) => {
     await seed(relay, (dir) => [
       liveRow(dir),
-      liveRow(dir, { id: oid(11), name: 'Orphan notes', project_id: null, directory: '/elsewhere', adoptable: false, adopt_reason: 'no_project' }),
+      liveRow(dir, { id: oid(11), name: 'Orphan notes', project_id: null, directory: '/elsewhere', adoptable: false, adopt_reason: 'not_registered', claude_session_id: OTHER_SID }),
       liveRow(dir, { id: oid(13), name: 'Piped run', adoptable: false, adopt_reason: 'not_interactive', claude_session_id: OTHER_SID }),
     ]);
     await eve.open('/');
@@ -585,7 +582,7 @@ test.describe('on a phone, rows relay says are not adoptable', () => {
     await stripOf(page).tap();
     const sheet = page.getByRole('dialog', { name: 'Agents' });
     await expect(adoptButton(sheet)).toBeVisible();
-    await expect(sheet.getByText(NO_PROJECT)).toBeVisible();
+    await expect(sheet.getByText(NOT_REGISTERED)).toBeVisible();
     await expect(sheet.getByText(NOT_INTERACTIVE)).toBeVisible();
     await expect(adoptButton(sheet, 'Orphan notes')).toHaveCount(0);
     await expect(adoptButton(sheet, 'Piped run')).toHaveCount(0);
