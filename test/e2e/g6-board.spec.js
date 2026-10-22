@@ -189,11 +189,13 @@ test.describe('on a phone', () => {
   });
 
   test('no count when no agent needs me @G6.25.r1', async ({ eve, page }) => {
-    // Both agents rest, as the Project page's board shows; Today's Bottom bar then has no count.
-    const board = await openBoard(eve);
-    await expect(board.getByRole('heading', { name: 'Idle 2', level: 4 })).toBeVisible();
-    await eve.open('/');
+    // "Idle 2" on this page proves its agent list has loaded; Today's Bottom bar then has no count.
+    await eve.open('/#project/p_acme');
+    await expect(page.getByRole('heading', { name: 'Idle 2', level: 4 })).toBeVisible();
+    // On a phone the Project page has no Bottom bar; Back returns to Today.
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
     const bar = page.getByRole('navigation', { name: 'Navigation' });
+    await expect(page.getByRole('heading', { level: 1, name: /^(Good morning|Good afternoon|Good evening|Working late)\.$/ })).toBeVisible();
     await expect(bar.getByRole('button', { name: /^Today/ })).toBeVisible();
     await expect(bar.getByText(/\d+ need you/)).toBeHidden();
   });

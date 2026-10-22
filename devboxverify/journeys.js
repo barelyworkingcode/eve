@@ -387,7 +387,7 @@ async function terminalOnRequest(env) {
   const onProjectPage = await openProjectPage(page, env, acme);
   env.step('find the probe in the project page\'s Agents');
   const row = onProjectPage.getByTestId(`project-agent-${probe.terminalId}`);
-  await need('the live terminal is not in the project page\'s Agents within 15s of a reload',
+  await need('the live terminal is not in the project page\'s Agents within 15s of opening the project page after a reload',
     expect(row).toBeVisible({ timeout: 15000 }));
   const lastLine = row.locator('.agent-row__last');
   await need('the probe\'s row on the project page shows no last line within 15s',
