@@ -129,6 +129,25 @@ function brokerCases() {
   usage(() => withStat({ ...owned, isFile: () => false })(B), /is not a file/, 'a directory');
   usage(() => readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify(B), statFile: () => { throw new Error('ENOENT'); } }), /does not exist/, 'missing file');
 
+  // pi_model and pi_agent_dir: both or neither, absolute dir, and the broker's key.
+  {
+    const PI = { pi_model: 'local-pi-model', pi_agent_dir: '/srv/runs/s1/pi-agent' };
+    const p = ok({ ...B, ...PI });
+    assert.strictEqual(p.piModel, 'local-pi-model');
+    assert.strictEqual(p.piAgentDir, '/srv/runs/s1/pi-agent');
+    assert.strictEqual(ok(B).piModel, null, 'absent pi_model reads as null');
+    assert.strictEqual(ok(B).piAgentDir, null, 'absent pi_agent_dir reads as null');
+    assert.strictEqual(from(GOOD).piAgentDir, null, 'a stack with no broker has no pi dir');
+    const js = journeyStack(p, '/x/scratch');
+    assert.strictEqual(js.piModel, 'local-pi-model', 'journeyStack keeps piModel');
+    assert.strictEqual(js.piAgentDir, '/srv/runs/s1/pi-agent', 'journeyStack keeps piAgentDir');
+    usage(() => ok({ ...B, pi_model: PI.pi_model }), /pi_agent_dir/, 'pi_model without pi_agent_dir');
+    usage(() => ok({ ...B, pi_agent_dir: PI.pi_agent_dir }), /pi_model/, 'pi_agent_dir without pi_model');
+    usage(() => ok({ ...B, ...PI, pi_agent_dir: 'rel/pi' }), /pi_agent_dir is not an absolute path/, 'relative pi_agent_dir');
+    usage(() => ok({ ...GOOD, ...PI }), /pi_model needs claude_base_url and claude_token_file/, 'pi without the broker');
+    for (const bad of ['', ' m', 5, null]) usage(() => ok({ ...B, ...PI, pi_model: bad }), /pi_model/, `pi_model ${JSON.stringify(bad)}`);
+  }
+
   // The env builder, with a real 0600 file.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dvb-'));
   try {
@@ -148,6 +167,17 @@ function brokerCases() {
     assert.ok(pre.includes(`token file ${file} is empty`), 'the refusal names the file');
     fs.writeFileSync(file, '\n');
     assert.throws(() => OC.outsideClaudeEnv(env), /is empty/, 'an empty token file fails fast');
+    // piShellPrefix: empty without a pi dir; the token only as $(cat ...), never in the argv.
+    assert.strictEqual(OC.piShellPrefix(env, '/x/sessions'), '', 'no pi_agent_dir, no prefix');
+    assert.strictEqual(OC.piShellPrefix({ stack: null }, '/x/sessions'), '', 'no stack, no prefix');
+    fs.writeFileSync(file, 'secret-bearer\n', { mode: 0o600 });
+    const piReal = readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify({ ...B, claude_token_file: file, pi_model: 'local-pi-model', pi_agent_dir: '/srv/runs/s1/pi-agent' }) });
+    const pp = OC.piShellPrefix({ stack: journeyStack(piReal, dir) }, '/x/sessions/--a--');
+    assert.ok(!pp.includes('secret-bearer'), 'the pi command line never holds the token');
+    assert.ok(pp.includes(`PI_STACK_KEY="$(cat '${file}')"`), 'the shell reads the token file');
+    assert.ok(pp.includes("PI_CODING_AGENT_DIR='/srv/runs/s1/pi-agent' "), 'the agent dir comes from the stack');
+    assert.ok(pp.includes("PI_CODING_AGENT_SESSION_DIR='/x/sessions/--a--' "), 'the session dir is the one given');
+    assert.ok(pp.startsWith(`[ -s '${file}' ] || { echo `) && pp.endsWith(' '), 'the shell refuses an unreadable token file; the prefix ends in a space');
     // settings.local.json
     const proj = path.join(dir, 'proj');
     fs.mkdirSync(proj);

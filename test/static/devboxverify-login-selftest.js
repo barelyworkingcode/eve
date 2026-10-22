@@ -168,7 +168,9 @@ async function main() {
     const all = require(path.join(EVE, 'devboxverify/journeys')).journeys;
     const byId = new Map(all.map((j) => [j.id, j]));
     for (const j of all) {
-      if (j.areas && j.areas.includes('chief-of-staff')) assert.strictEqual(j.claude, true, `${j.id} is chief-of-staff and needs claude: true`);
+      // The Pi and Codex adopt journeys run no claude, so they carry no claude flag (eve#609 contract).
+      if (j.id === 'outside-adopt-pi' || j.id === 'outside-adopt-codex') assert.notStrictEqual(j.claude, true, `${j.id} runs no claude and carries no claude flag`);
+      else if (j.areas && j.areas.includes('chief-of-staff')) assert.strictEqual(j.claude, true, `${j.id} is chief-of-staff and needs claude: true`);
       if (j.fixture) assert.notStrictEqual(j.claude, true, `${j.id} is a fixture journey`);
     }
     const ids = ['agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card',
