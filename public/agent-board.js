@@ -328,7 +328,10 @@ class AgentBoard {
       if (terminal?.terminalId) {
         AgentBoard.held.set(sessionId, terminal.terminalId);
         onAnswer?.();
-        AgentBoard._termMgr(container)?.openDropIn(terminal);
+        // Relay's drop-in answer carries no mark; its terminal inherits the session's, and the tab
+        // must know it before the next terminal list.
+        const marked = container.get('state').getSession(sessionId)?.unsandboxed === true;
+        AgentBoard._termMgr(container)?.openDropIn(marked ? { ...terminal, unsandboxed: true } : terminal);
       } else {
         onAnswer?.();
         toast("Can't drop in: relay did not return a terminal.");
