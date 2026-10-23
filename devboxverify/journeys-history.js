@@ -141,6 +141,13 @@ async function historyResume(env) {
   }, { timeoutMs: READY_WITHIN_MS, intervalMs: 500 });
   if (!ready) return result(id, BLOCKED, `the Claude terminal showed no prompt within ${READY_WITHIN_MS / 1000}s (model start-up has no signal)`);
 
+  // A stack's broker serves only the `haiku` alias; the terminal Claude starts on its default model, which goes to the
+  // real API with the project's bearer and gets a 401. The model is chosen inside the TUI, so no credential is typed.
+  if (env.stack && env.stack.claudeBaseUrl) {
+    env.step('choose the haiku model');
+    await typeLine(page, '/model haiku');
+  }
+
   env.step('send the prompt');
   await typeLine(page, `Reply with exactly ${marker} and nothing else.`);
   // The prompt itself carries the marker: the reply is a marker left once every copy of the prompt is taken out.
