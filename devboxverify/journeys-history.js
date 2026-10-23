@@ -10,7 +10,7 @@ const { PASS, FAIL, BLOCKED, result, need, poll, openEve, openProject, openLaunc
 const TITLE = 'History journey';
 const READY_WITHIN_MS = 60000; // Claude's start-up, the MCP servers and the trust prompt
 const REPLY_WITHIN_MS = 120000;
-const RENAME_WITHIN_MS = 20000; // soft: the History row is the verdict
+const RENAME_WITHIN_MS = 60000; // TUI output with no signal: the rename counts once relay's row carries the title
 const ROW_WITHIN_MS = 90000; // relay re-reads transcripts on a scan
 const TAB_WITHIN_MS = 30000;
 const SCROLLBACK_WITHIN_MS = 60000;
@@ -26,6 +26,33 @@ async function paneText(page) {
     return out;
   }).catch(() => '');
   return { visible: visible.replace(/\s+/g, ''), flat: `${visible}${buffered}`.replace(/\s+/g, '') };
+}
+
+// The newest session_history frame this page received, rows as relay sent them (a live terminal's row included).
+function historyFrames(page) {
+  const seen = { rows: [], frames: 0 };
+  const take = (m) => {
+    if (m && m.type === 'session_history' && Array.isArray(m.rows)) { seen.rows = m.rows; seen.frames += 1; }
+  };
+  page.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
+    if (typeof payload !== 'string') return;
+    let f;
+    try { f = JSON.parse(payload); } catch { return; }
+    if (f && f.type === '__batch' && Array.isArray(f.msgs)) f.msgs.forEach(take);
+    else take(f);
+  }));
+  return seen;
+}
+
+// What relay's rows showed, for a failure detail. Titles are untrusted text: cut and quoted.
+const describeRows = (rows) => (rows.length
+  ? rows.map((r) => `{title:${JSON.stringify(String(r.title ?? null).slice(0, 60))}, titleSource:${JSON.stringify(r.titleSource ?? null)}, state:${r.state}, resume:${r.resume}${r.resumeReason ? `/${r.resumeReason}` : ''}, transcript:${r.transcript}}`).join(' ')
+  : 'no rows');
+
+async function screenTail(page) {
+  const text = await page.locator('#terminal').innerText({ timeout: 2000 }).catch(() => '');
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean).slice(-12);
+  return lines.length ? lines.join(' | ').slice(0, 800) : 'empty';
 }
 
 const occurrences = (text, needle) => text.split(needle).length - 1;
@@ -71,6 +98,7 @@ async function historyResume(env) {
   const marker = `verify-${env.nonce}-history`;
 
   const page = await env.newPage();
+  const seen = historyFrames(page);
   await openEve(page, env);
   await waitForModels(page, env);
   const terminalsBefore = await acmeIds(env, 'terminals');
@@ -110,8 +138,20 @@ async function historyResume(env) {
 
   env.step('rename the conversation');
   await typeLine(page, `/rename ${TITLE}`);
+  // The rename counts once relay's own row carries the title while the terminal is still open: the Resume tab asks
+  // relay each time it opens, and the frame lists a live terminal's row too. The screen is a second witness only.
+  env.step('wait for relay to show the title');
   const flatTitle = TITLE.replace(/\s+/g, '');
-  await poll(async () => (occurrences((await paneText(page)).flat, flatTitle) >= 2 ? true : null), { timeoutMs: RENAME_WITHIN_MS, intervalMs: 500 });
+  const renamed = await poll(async () => {
+    const d = await openResumeTab(page, env);
+    await d.getByRole('button', { name: 'Close', exact: true }).click({ timeout: 5000 });
+    return seen.rows.some((r) => r.title === TITLE) ? true : null;
+  }, { timeoutMs: RENAME_WITHIN_MS, intervalMs: 2000 });
+  if (!renamed) {
+    const onScreen = occurrences((await paneText(page)).flat, flatTitle);
+    return result(id, FAIL, `relay's history rows never showed the title "${TITLE}" within ${RENAME_WITHIN_MS / 1000}s of /rename, with the terminal still open `
+      + `(the title is on screen ${onScreen} time${onScreen === 1 ? '' : 's'}; rows: ${describeRows(seen.rows)}; screen: ${await screenTail(page)})`);
+  }
 
   env.step('close the tab');
   const opened = addedIds(terminalsBefore, await acmeIds(env, 'terminals'));
@@ -133,7 +173,7 @@ async function historyResume(env) {
   if (!listed) {
     return result(id, FAIL, text.includes('History unavailable')
       ? 'the Resume tab says "History unavailable"'
-      : `no History row titled "${TITLE}" within ${ROW_WITHIN_MS / 1000}s of closing the terminal`);
+      : `no History row titled "${TITLE}" within ${ROW_WITHIN_MS / 1000}s of closing the terminal (rows: ${describeRows(seen.rows)}; dialog: ${JSON.stringify(text.slice(0, 300))})`);
   }
   const from = text.indexOf(TITLE);
   const next = text.indexOf('Resume ', from + TITLE.length);
