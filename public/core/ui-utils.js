@@ -291,7 +291,9 @@ function sessionDisplayName(session, project, { stripProject = true } = {}) {
   const remembered = (typeof SessionRecents !== 'undefined') ? SessionRecents.get(session?.id)?.title : '';
   // `preview` is relayLLM's first-user-turn text when the list carries it;
   // it covers sessions this browser never opened.
-  return remembered || (session?.preview || '').trim() || shown;
+  // Relay's title is the client's own (e.g. /rename); the remembered one is the
+  // first message this browser saw, so it only fills in when relay gives none.
+  return (session?.title || '').trim() || remembered || (session?.preview || '').trim() || shown;
 }
 
 // The chip that marks a project as living on an SSH host. `host` is the

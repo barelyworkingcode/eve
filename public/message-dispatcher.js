@@ -80,6 +80,8 @@ class MessageDispatcher {
       session_folder_changed: (d) => this.handleSessionFolderChanged(d),
       session_ended:        (d) => this.handleSessionEnded(d),
       session_state:        (d) => this.bus.emit(EVT.SESSION_STATE, d),
+      session_history:      (d) => this.bus.emit(EVT.SESSION_HISTORY_LOADED, d),
+      session_history_error: (d) => this.bus.emit(EVT.SESSION_HISTORY_ERROR, d),
       cos_outside_sessions: (d) => this.bus.emit(EVT.COS_OUTSIDE_SESSIONS, d),
       cos_snapshot:         (d) => this.bus.emit(EVT.COS_SNAPSHOT, d),
       cos_post:             (d) => this.bus.emit(EVT.COS_POST, d),
