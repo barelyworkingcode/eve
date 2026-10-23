@@ -28,6 +28,16 @@ async function openProjectPage(page) {
   await expect(page.getByRole('heading', { level: 1, name: 'Acme' })).toBeVisible();
 }
 
+// Relay lists a dormant agent session in its history; the Resume tab shows only those rows.
+function withHistory(w) {
+  w.sessionHistory = w.sessions.map((s) => ({
+    id: s.id, record: 'launched', kind: 'claude', agent: 'claude', projectId: s.project_id, hostId: null,
+    directory: '/work/acme', conversationId: `c-${s.id}`, title: null, titleSource: null,
+    lastActiveAt: null, createdAt: '2026-10-01T10:00:00Z', state: 'dormant', transcript: 'present', resume: 'session',
+  }));
+  return w;
+}
+
 function shellWorld() {
   const w = worlds.base();
   w.terminal_templates = [{ id: 'shell', name: 'Shell', command: '/bin/sh', description: 'A plain shell' }];
@@ -61,7 +71,7 @@ test('a link to an unknown project says so @G3.2.r1', async ({ eve, page }) => {
 });
 
 test.describe('threads from yesterday', () => {
-  test.use({ world: threadsWorld('Ledger', 'Roadmap') });
+  test.use({ world: withHistory(threadsWorld('Ledger', 'Roadmap')) });
 
   test('open a thread from the Project page Threads list @G3.3', async ({ eve, page }) => {
     await eve.open('/');
@@ -113,7 +123,7 @@ test.describe('threads from yesterday', () => {
   test('open a thread from the Launcher Resume tab @G3.10', async ({ eve, page }) => {
     await eve.open('/');
     const launcher = await openResume(page);
-    await launcher.getByRole('button', { name: 'Ledger', exact: true }).click();
+    await launcher.getByRole('button', { name: 'Resume Ledger', exact: true }).click();
     await expect(launcher).toBeHidden();
     await expect(page.getByRole('tab', { name: 'Ledger' })).toBeVisible();
     await expect(page.getByText('answer in Ledger')).toBeVisible();
@@ -129,8 +139,8 @@ test.describe('threads from yesterday', () => {
     await expect.poll(() => sessionIds(relay)).toEqual(['s_t2']);
     await launcher.getByRole('button', { name: 'Close' }).click();
     const again = await openResume(page);
-    await expect(again.getByRole('button', { name: 'Roadmap', exact: true })).toBeVisible();
-    await expect(again.getByRole('button', { name: 'Ledger', exact: true })).toBeHidden();
+    await expect(again.getByRole('button', { name: 'Resume Roadmap', exact: true })).toBeVisible();
+    await expect(again.getByRole('button', { name: 'Resume Ledger', exact: true })).toBeHidden();
   });
 
   test('cancel the delete and the thread stays @G3.12.r1', async ({ eve, page, relay }) => {
@@ -142,11 +152,11 @@ test.describe('threads from yesterday', () => {
     await expect(confirm).toBeVisible();
     await confirm.getByRole('button', { name: 'Cancel' }).click();
     await expect(confirm).toBeHidden();
-    await expect(launcher.getByRole('button', { name: 'Ledger', exact: true })).toBeVisible();
+    await expect(launcher.getByRole('button', { name: 'Resume Ledger', exact: true })).toBeVisible();
     // A Cancel sends nothing to relay, so a read now could pass before a delete arrived. The
     // barrier: open the thread and send a message on the same socket, wait for relay's
     // chat.turn, then no delete may be on record since the mark.
-    await launcher.getByRole('button', { name: 'Ledger', exact: true }).click();
+    await launcher.getByRole('button', { name: 'Resume Ledger', exact: true }).click();
     const box = page.getByRole('textbox', { name: 'Type your message...' });
     await expect(box).toBeEnabled();
     await box.fill('after cancel from testbox');

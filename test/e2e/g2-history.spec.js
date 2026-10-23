@@ -239,8 +239,13 @@ test.describe('titles', () => {
   test.use({
     world: historyWorld([
       row('s_titled', { kind: 'claude', title: 'Quarterly planning', resume: 'session' }),
+      row('s_named', { kind: 'claude', title: 'Relay would call this', resume: 'session' }),
     ], {
-      sessions: [thread('s_titled', 'haiku', 'Draft the roadmap'), thread('s_plain', 'haiku', 'Check the invoices')],
+      sessions: [
+        thread('s_titled', 'haiku', 'Draft the roadmap'),
+        thread('s_plain', 'haiku', 'Check the invoices'),
+        thread('s_named', 'Budget notes', 'Add up the receipts'),
+      ],
     }),
   });
 
@@ -268,5 +273,15 @@ test.describe('titles', () => {
     await expect(threads.getByRole('button', { name: 'haiku', exact: true })).toHaveCount(0);
     // No title from relay: the first message this browser saw.
     await expect(threads.getByRole('button', { name: 'Check the invoices', exact: true })).toBeVisible();
+  });
+
+  test('G2.59 a name the person gave wins over relay\'s title @G2.59', async ({ eve, page }) => {
+    await eve.open('/');
+    await rail(page).getByRole('button', { name: 'Acme' }).click();
+    await page.getByRole('button', { name: 'Project page' }).click();
+    const threads = page.getByRole('list', { name: 'Threads' });
+    await expect(threads.getByRole('button', { name: 'Quarterly planning', exact: true })).toBeVisible();
+    await expect(threads.getByRole('button', { name: 'Budget notes', exact: true })).toBeVisible();
+    await expect(threads.getByRole('button', { name: 'Relay would call this', exact: true })).toHaveCount(0);
   });
 });
