@@ -56,6 +56,9 @@ const EVT = {
   PERMISSION_REQUEST: 'permission:request',
   PERMISSION_RESPONSE: 'permission:response',
 
+  SESSION_HISTORY_LOADED: 'session:history_loaded',
+  SESSION_HISTORY_ERROR: 'session:history_error',
+
   TERMINAL_CREATED: 'terminal:created',
   TERMINAL_JOINED: 'terminal:joined',
   TERMINAL_OUTPUT: 'terminal:output',

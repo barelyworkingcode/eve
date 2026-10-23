@@ -4546,6 +4546,7 @@ const files = require('./journeys-files').journeys;
 const cosOutside = require('./journeys-cos-outside').journeys;
 const cosDelegation = require('./journeys-cos-delegation').journeys;
 const cosClear = require('./journeys-cos-clear').journeys;
+const history = require('./journeys-history').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
 // that could open relay's one enrolment window; add-browser-in-window runs
@@ -4642,6 +4643,7 @@ const journeys = [
   cosOutside.outsideAdoptPi,
   cosOutside.outsideAdoptCodex,
   cosOutside.cosOutsideHooks,
+  history.historyResume,
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
 ].map((j) => withTranscriptSweep(withCosTurnGate(j), RUN_STARTED_MS));

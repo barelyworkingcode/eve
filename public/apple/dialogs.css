@@ -482,6 +482,42 @@
   background: color-mix(in srgb, var(--success) 14%, transparent);
 }
 
+/* History rows (Resume tab): title and age on one line, the reason under it. */
+.shell-launcher__history-row { padding: var(--sp-3) var(--sp-5); }
+
+.shell-launcher__history-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--sp-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.shell-launcher__history-meta,
+.shell-launcher__history-reason,
+.shell-launcher__history-note {
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+}
+
+.shell-launcher__history-reason { flex-basis: 100%; }
+
+.shell-launcher__history-note { padding: var(--sp-2) 0; }
+
+.shell-launcher__history-resume {
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-footnote);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.shell-launcher__history-resume:disabled { opacity: 0.6; cursor: default; }
+
 .shell-launcher__empty {
   color: var(--text-muted);
   font-size: var(--text-body);

@@ -1,3 +1,13 @@
+const HISTORY_REASONS = {
+  live: 'Still running',
+  held: 'Open in another terminal',
+  no_conversation: 'No conversation yet',
+  transcript_absent: 'Its transcript is gone',
+  no_project: 'Not in this project\'s folders',
+  host_unsupported: 'On a host: resume it there',
+  kind: 'Can\'t be resumed here',
+};
+
 class ShellLauncherDialog extends DialogBase {
   constructor(container) {
     super(container, 'shell-launcher-dialog');
@@ -12,6 +22,37 @@ class ShellLauncherDialog extends DialogBase {
       this.render();
       this.show();
       this._applyIntent(data.intent);
+    });
+
+    this.bus.on(EVT.SESSION_HISTORY_LOADED, (d) => {
+      if (d.projectId !== this.projectId || !this._historyEl?.isConnected) return;
+      this._history = d.error ? { status: 'error' } : { status: 'ok', rows: d.rows || [] };
+      this._paintHistory();
+    });
+    this.bus.on(EVT.SESSION_HISTORY_ERROR, (d) => {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: `history-resume-${d.id}`, type: 'error', duration: 8000,
+        message: `Can't resume: ${String(d.error || d.code || 'unknown').replace(/\s+/g, ' ').trim()}`,
+      });
+      if (d.id === this._resumingId) this._resumingId = null;
+      this._paintHistory();
+    });
+    // The dialog stays open until relay's terminal exists, so a refusal can
+    // show its toast over a button that comes back. Relay's 201 names the row
+    // it supersedes, which ties the frame to this tap and not to a terminal
+    // some other path added meanwhile.
+    this.bus.on(EVT.TERMINAL_CREATED, (d) => {
+      if (!this._resumingId || d.supersedes !== this._resumingId) return;
+      this._resumedTerminalId = d.terminalId;
+      this._finishResume();
+    });
+    // The manager sets a terminal up later when xterm is still loading.
+    this.bus.on(EVT.TERMINAL_LIST, () => this._finishResume());
+    this.bus.on(EVT.WS_DISCONNECTED, () => {
+      if (!this._resumingId) return;
+      this._resumingId = null;
+      this._resumedTerminalId = null;
+      this._paintHistory();
     });
 
     // A targeted DOM patch, not a full _showTab('new') re-render: this used
@@ -332,56 +373,10 @@ class ShellLauncherDialog extends DialogBase {
     const container = document.createElement('div');
     container.className = 'shell-launcher__resume';
 
-    const sessions = this.state.getSessionsForProject(this.projectId);
-    if (sessions.length > 0) {
-      const header = document.createElement('div');
-      header.className = 'shell-launcher__section-title';
-      header.setAttribute('role', 'heading');
-      header.setAttribute('aria-level', '4');
-      header.textContent = 'Chat Sessions';
-      container.appendChild(header);
-
-      for (const session of sessions) {
-        const item = document.createElement('div');
-        item.className = 'shell-launcher__resume-item';
-
-        const resumeBtn = document.createElement('button');
-        resumeBtn.className = 'shell-launcher__resume-btn';
-        resumeBtn.setAttribute('aria-label', session.name || 'Unnamed');
-
-        const name = document.createElement('span');
-        name.className = 'shell-launcher__resume-name';
-        name.textContent = session.name || 'Unnamed';
-
-        const badge = document.createElement('span');
-        badge.className = 'shell-launcher__resume-badge';
-        badge.textContent = session.model || '';
-
-        resumeBtn.appendChild(name);
-        resumeBtn.appendChild(badge);
-        resumeBtn.addEventListener('click', () => {
-          this.hide();
-          this.container.get('app').joinSession(session.id);
-        });
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'shell-launcher__resume-delete';
-        deleteBtn.title = 'Delete session';
-        deleteBtn.setAttribute('aria-label', `Delete session ${session.name || 'Unnamed'}`);
-        deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
-        deleteBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.container.get('app').deleteSession(session.id);
-          // Delete is async (round-trips through relay); re-rendering
-          // immediately would still show the deleted session.
-          setTimeout(() => this._showTab('resume'), 300);
-        });
-
-        item.appendChild(resumeBtn);
-        item.appendChild(deleteBtn);
-        container.appendChild(item);
-      }
-    }
+    this._history = { status: 'loading' };
+    this._historyEl = document.createElement('div');
+    container.appendChild(this._historyEl);
+    this.container.get('ws').send({ type: 'session_history_list', projectId: this.projectId });
 
     const termHeader = document.createElement('div');
     termHeader.className = 'shell-launcher__section-title';
@@ -418,14 +413,182 @@ class ShellLauncherDialog extends DialogBase {
       }
     }
 
-    if (sessions.length === 0 && terminalCount === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'shell-launcher__empty';
-      empty.textContent = 'No active sessions or terminals.';
-      container.appendChild(empty);
-    }
+    this._terminalCount = terminalCount;
+    this._emptyEl = document.createElement('div');
+    this._emptyEl.className = 'shell-launcher__empty';
+    this._emptyEl.textContent = 'No active sessions or terminals.';
+    this._emptyEl.hidden = true;
+    container.appendChild(this._emptyEl);
+    this._paintHistory();
 
     this._tabContent.appendChild(container);
+  }
+
+  _finishResume() {
+    const id = this._resumedTerminalId;
+    const tabManager = this.container.get('tabManager');
+    const tab = id && tabManager.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    this._resumingId = null;
+    this._resumedTerminalId = null;
+    // Deliberate: the tab strip shows only the active project's tabs, and
+    // relay's 201 need not name the project or a directory eve can match
+    // to one. The launcher knows which project the person resumed in.
+    if (!tab.projectId) tab.projectId = this.projectId;
+    this.hide();
+    tabManager.switchToTab(id);
+  }
+
+  _sectionTitle(text) {
+    const header = document.createElement('div');
+    header.className = 'shell-launcher__section-title';
+    header.setAttribute('role', 'heading');
+    header.setAttribute('aria-level', '4');
+    header.textContent = text;
+    return header;
+  }
+
+  // Paints the History block for the state the last frame left. Every string
+  // from relay goes in through textContent: a title is untrusted text.
+  _paintHistory() {
+    const el = this._historyEl;
+    if (!el || !el.isConnected) return;
+    el.replaceChildren();
+    const sessions = this.state.getSessionsForProject(this.projectId);
+    let shown = 0;
+    if (this._history.status === 'loading') {
+      el.appendChild(this._noteLine('Loading history…'));
+    } else if (this._history.status === 'error') {
+      el.appendChild(this._noteLine('History unavailable'));
+      shown = this._renderChatSessions(el, sessions);
+    } else {
+      // A live terminal shows under "Running Terminals", from the terminal list.
+      const rows = this._history.rows.filter((r) => !(r.kind === 'terminal' && (r.state === 'live' || r.resumeReason === 'live')));
+      if (rows.length > 0) {
+        el.appendChild(this._sectionTitle('History'));
+        for (const row of rows) el.appendChild(this._historyRow(row));
+      }
+      shown = rows.length;
+    }
+    if (this._emptyEl) this._emptyEl.hidden = this._history.status === 'loading' || shown > 0 || this._terminalCount > 0;
+  }
+
+  _noteLine(text) {
+    const note = document.createElement('div');
+    note.className = 'shell-launcher__history-note';
+    note.textContent = text;
+    return note;
+  }
+
+  _historyRow(row) {
+    const session = row.resume === 'session' ? this.state.sessions.get(row.id) : null;
+    const project = this.state.getProject(this.projectId);
+    const folder = String(row.directory || '').split('/').filter(Boolean).pop() || project?.name || '';
+    const title = (row.title || '').trim()
+      || (session ? sessionDisplayName(session, project) : '')
+      || `Claude — ${folder}`;
+    const badge = row.record === 'discovered' ? 'Found'
+      : row.kind === 'terminal' ? 'Terminal'
+      : ['claude', 'pi', 'codex'].includes(row.kind) ? 'Agent' : 'Chat';
+
+    const item = document.createElement('div');
+    item.className = 'shell-launcher__resume-item shell-launcher__history-row';
+    item.dataset.historyId = row.id;
+
+    const text = document.createElement('div');
+    text.className = 'shell-launcher__history-text';
+    const name = document.createElement('span');
+    name.className = 'shell-launcher__resume-name';
+    name.textContent = title;
+    const meta = document.createElement('span');
+    meta.className = 'shell-launcher__history-meta';
+    const when = relativeTime(row.lastActiveAt || row.createdAt);
+    meta.textContent = /^\d+[mhdw]$/.test(when) ? `${when} ago` : when;
+    text.append(name, meta);
+    if (row.resume === 'none') {
+      const reason = document.createElement('span');
+      reason.className = 'shell-launcher__history-reason';
+      reason.textContent = HISTORY_REASONS[row.resumeReason] || HISTORY_REASONS.kind;
+      text.appendChild(reason);
+    }
+
+    const pill = document.createElement('span');
+    pill.className = 'shell-launcher__resume-badge';
+    pill.textContent = badge;
+    item.append(text, pill);
+
+    if (row.resume === 'history' || row.resume === 'session') {
+      const btn = document.createElement('button');
+      btn.className = 'shell-launcher__history-resume';
+      btn.setAttribute('aria-label', `Resume ${title}`);
+      const pending = this._resumingId === row.id;
+      btn.textContent = pending ? 'Resuming…' : 'Resume';
+      btn.disabled = pending;
+      btn.addEventListener('click', () => {
+        if (row.resume === 'session') {
+          this.hide();
+          this.container.get('app').joinSession(row.id);
+          return;
+        }
+        this._resumingId = row.id;
+        btn.textContent = 'Resuming…';
+        btn.disabled = true;
+        // Only the row id and the size: relay owns everything else.
+        this.container.get('ws').send({ type: 'session_history_resume', id: row.id, cols: 80, rows: 24 });
+      });
+      item.appendChild(btn);
+    }
+    if (row.resume === 'session') {
+      item.appendChild(this._deleteButton(row.id, title));
+    }
+    return item;
+  }
+
+  _deleteButton(id, name) {
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'shell-launcher__resume-delete';
+    deleteBtn.title = 'Delete session';
+    deleteBtn.setAttribute('aria-label', `Delete session ${name}`);
+    deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.container.get('app').deleteSession(id);
+      // Delete is async (round-trips through relay); re-rendering
+      // immediately would still show the deleted session.
+      setTimeout(() => this._showTab('resume'), 300);
+    });
+    return deleteBtn;
+  }
+
+  // The list the tab showed before relay's history: used when history does not answer.
+  _renderChatSessions(parent, sessions) {
+    if (sessions.length === 0) return 0;
+    parent.appendChild(this._sectionTitle('Chat Sessions'));
+    for (const session of sessions) {
+      const item = document.createElement('div');
+      item.className = 'shell-launcher__resume-item';
+
+      const resumeBtn = document.createElement('button');
+      resumeBtn.className = 'shell-launcher__resume-btn';
+      resumeBtn.setAttribute('aria-label', session.name || 'Unnamed');
+
+      const name = document.createElement('span');
+      name.className = 'shell-launcher__resume-name';
+      name.textContent = session.name || 'Unnamed';
+
+      const badge = document.createElement('span');
+      badge.className = 'shell-launcher__resume-badge';
+      badge.textContent = session.model || '';
+
+      resumeBtn.append(name, badge);
+      resumeBtn.addEventListener('click', () => {
+        this.hide();
+        this.container.get('app').joinSession(session.id);
+      });
+      item.append(resumeBtn, this._deleteButton(session.id, session.name || 'Unnamed'));
+      parent.appendChild(item);
+    }
+    return sessions.length;
   }
 
   _createRemoteSessions() {

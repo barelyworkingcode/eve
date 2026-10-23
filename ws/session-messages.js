@@ -159,7 +159,47 @@ function parseFileAttachment(f) {
   return { name: f.name, mimeType: f.mediaType || '', data: f.content || '' };
 }
 
+async function handleHistoryList(ctx) {
+  const { ws, message } = ctx;
+  const projectId = typeof message.projectId === 'string' ? message.projectId : '';
+  try {
+    const { status, data } = await ctx.deps.relayTransport.fetch('GET', `/api/session-history?projectId=${encodeURIComponent(projectId)}`);
+    if (status < 200 || status >= 300 || !data || !Array.isArray(data.rows)) throw new Error(`status ${status}`);
+    ws.send(JSON.stringify({
+      type: 'session_history', projectId, ready: data.ready === true, revision: data.revision, rows: data.rows,
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({ type: 'session_history', projectId, error: 'unavailable' }));
+  }
+}
+
+// The id goes into a path; encoding keeps it from adding a segment.
+async function handleHistoryResume(ctx) {
+  const { ws, relayClient, message } = ctx;
+  const id = typeof message.id === 'string' ? message.id : '';
+  const refuse = (code, error) => ws.send(JSON.stringify({ type: 'session_history_error', id, code, error }));
+  if (!id) return refuse('invalid_body', 'a history row needs an id');
+  let status, data;
+  try {
+    ({ status, data } = await ctx.deps.relayTransport.fetch(
+      'POST', `/api/session-history/${encodeURIComponent(id)}/resume`, { cols: message.cols, rows: message.rows },
+    ));
+  } catch (err) {
+    return refuse('unavailable', 'relay unavailable');
+  }
+  if (status !== 201 || !data || !data.terminalId) {
+    return refuse((data && data.code) || 'unavailable', (data && data.error) || `resume failed (${status})`);
+  }
+  // `supersedes` stays on the frame: it ties this terminal to the row the person tapped.
+  ws.send(JSON.stringify({ type: 'terminal_created', ...data }));
+  relayClient.send({ type: 'join_terminal', terminalId: data.terminalId });
+}
+
 module.exports = [
+  { type: 'session_history_list', async handle(ctx) { await handleHistoryList(ctx); } },
+
+  { type: 'session_history_resume', async handle(ctx) { await handleHistoryResume(ctx); } },
+
   { type: 'create_session', expensive: true, async handle(ctx) { await handleCreateSession(ctx); } },
 
   { type: 'join_session', handle(ctx) { ctx.relayClient.joinSession(ctx.message.sessionId); } },
