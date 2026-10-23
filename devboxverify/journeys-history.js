@@ -25,7 +25,9 @@ async function paneText(page) {
     for (let i = 0; i < b.length; i++) out += (b.getLine(i)?.translateToString(true) || '') + '\n';
     return out;
   }).catch(() => '');
-  return { visible: visible.replace(/\s+/g, ''), flat: `${visible}${buffered}`.replace(/\s+/g, '') };
+  // flat is the buffer when xterm has one (it holds the visible rows too), else the visible rows: never both, so a
+  // string shown once counts once.
+  return { visible: visible.replace(/\s+/g, ''), flat: (buffered || visible).replace(/\s+/g, '') };
 }
 
 // The newest session_history frame this page received, rows as relay sent them (a live terminal's row included).
@@ -68,10 +70,19 @@ function trustAnswerer(page) {
   };
 }
 
+// Types a line into Claude's input box and submits it. Claude's box reads text that arrives with its Enter in one burst
+// as a paste, and then Enter is a newline: so the Enter is sent only after the typed text shows in the box, and once
+// more if the box still holds the line after it. Both waits are bounded reads of the screen; the box has no signal.
 async function typeLine(page, text) {
   await page.locator('#terminal .xterm-screen').filter({ visible: true }).last().click({ timeout: 5000 });
   await page.keyboard.type(text);
+  const flat = text.replace(/\s+/g, '');
+  const inBox = async () => (await paneText(page)).visible.includes(`\u276F${flat}`);
+  const typed = await poll(async () => ((await inBox()) ? true : null), { timeoutMs: 10000, intervalMs: 200 });
+  if (!typed) throw new Error(`the typed line never showed in Claude's input box within 10s (screen: ${await screenTail(page)})`);
   await page.keyboard.press('Enter');
+  const sent = await poll(async () => ((await inBox()) ? null : true), { timeoutMs: 10000, intervalMs: 200 });
+  if (!sent) await page.keyboard.press('Enter');
 }
 
 async function activeTab(page, why) {
@@ -132,9 +143,10 @@ async function historyResume(env) {
 
   env.step('send the prompt');
   await typeLine(page, `Reply with exactly ${marker} and nothing else.`);
-  // The prompt shows the marker once; the reply makes it twice.
-  const replied = await poll(async () => (occurrences((await paneText(page)).flat, marker) >= 2 ? true : null), { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
-  if (!replied) return result(id, BLOCKED, `claude did not reply ${marker} within ${REPLY_WITHIN_MS / 1000}s (model output)`);
+  // The prompt itself carries the marker: the reply is a marker left once every copy of the prompt is taken out.
+  const promptFlat = `Replywithexactly${marker}andnothingelse.`;
+  const replied = await poll(async () => ((await paneText(page)).flat.split(promptFlat).join('').includes(marker) ? true : null), { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
+  if (!replied) return result(id, BLOCKED, `claude did not reply ${marker} within ${REPLY_WITHIN_MS / 1000}s (model output; screen: ${await screenTail(page)})`);
 
   env.step('rename the conversation');
   await typeLine(page, `/rename ${TITLE}`);
