@@ -1248,6 +1248,27 @@ gives the measured gap.
   never a path, and never changes the result: it cannot reject, and its limit
   (30 s) sits above its own bound. See `claude-transcripts.js`.
 
+**history-resume.** A past Claude terminal is found and resumed from the Launcher's
+Resume tab (G2.58, simple path; 360 s, needs Claude). In Acme Corp it opens
+Launcher > New > the Claude terminal, answers the folder-trust prompt if it shows,
+types `Reply with exactly verify-<nonce>-history and nothing else.`, then
+`/rename History journey`, and closes the tab. It reopens the Launcher on
+Resume until the History heading lists a row "History journey" (up to 90 s: relay
+re-reads transcripts on a scan). The row must show an age and the badge "Terminal".
+One tap on "Resume History journey" must close the Launcher, open an active terminal
+tab, and show the earlier marker in that terminal's scrollback within 60 s.
+- Lives in: `devboxverify/journeys-history.js`; `public/dialogs/shell-launcher-dialog.js`
+  (`_renderResumeTab`); relay's `GET /api/session-history` and
+  `POST /api/session-history/{id}/resume`.
+- Traps: BLOCKED when the Launcher offers no Claude terminal, or when Claude shows
+  no prompt within 60 s or does not reply within 120 s (model output has no signal,
+  so these are bounded reads of the terminal text). FAIL when the row never lists
+  or the Resume tab says "History unavailable". The wait for `/rename` to echo is
+  soft: the row is the verdict. Cleanup closes the terminals the journey opened by
+  id and never touches tmux. The conversation file carries the run's marker, so
+  the transcript sweep removes it (see "Transcript cleanup" above).
+  Run it alone: `node devboxverify/main.js --only history-resume`.
+
 **cos-project-from-relay.** A project chosen in relay's Settings is the one the
 Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
 needs setup V-COS-B and relay's Chief of Staff setting at Not set; with the
