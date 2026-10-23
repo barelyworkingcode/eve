@@ -29,6 +29,8 @@
     "search_ai_summarize",
     "search_cancel",
     "search_project",
+    "session_history_list",
+    "session_history_resume",
     "set_permission_mode",
     "set_session_folder",
     "stop_generation",
@@ -59,6 +61,8 @@
   ],
   "asyncHandlers": [
     "create_session",
+    "session_history_list",
+    "session_history_resume",
     "terminal_create"
   ],
   "breakpoints": [
@@ -118,6 +122,7 @@
     {"id":"outside-adopt-pi","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":480000},
     {"id":"outside-adopt-codex","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":480000},
     {"id":"cos-outside-hooks","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":360000},
+    {"id":"history-resume","needs":["project:acme"],"areas":["chat","terminal"],"timeoutMs":360000},
     {"id":"cos-add-agent","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":300000,"screen":true},
     {"id":"cos-start-entry","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":480000,"screen":true},
     {"id":"cos-add-chat","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":540000,"screen":true},

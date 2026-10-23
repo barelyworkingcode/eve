@@ -15,6 +15,23 @@ async function fetchProjects({ relayTransport, refreshProjectCache, resolveProje
   return { status, data };
 }
 
+// Relay's history ids are session ids for launched records. A failed read
+// leaves the sessions as they are: titles are decoration, never a reason to
+// fail the snapshot.
+async function copyHistoryTitles(relayTransport, sessions) {
+  try {
+    const { status, data } = await relayTransport.fetch('GET', '/api/session-history');
+    if (status < 200 || status >= 300 || !data || !Array.isArray(data.rows)) return;
+    const byId = new Map(data.rows.map(r => [r.id, r]));
+    for (const s of sessions) {
+      const row = byId.get(s.id);
+      if (!row) continue;
+      if (row.title) s.title = row.title;
+      if (row.lastActiveAt) s.lastActiveAt = row.lastActiveAt;
+    }
+  } catch { /* history is optional */ }
+}
+
 // The body GET /api/sessions answers. Throws when relay is unreachable.
 async function fetchSessions({ relayTransport }) {
   const { status, data } = await relayTransport.fetch('GET', '/api/sessions');
@@ -28,7 +45,9 @@ async function fetchSessions({ relayTransport }) {
   const sessions = Array.isArray(data) ? data
     : (data && Array.isArray(data.sessions) ? data.sessions : null);
   if (status >= 200 && status < 300 && sessions) {
-    return { status, data: sessions.filter(s => !isHiddenSession(s.name)) };
+    const visible = sessions.filter(s => !isHiddenSession(s.name));
+    await copyHistoryTitles(relayTransport, visible);
+    return { status, data: visible };
   }
   return { status, data };
 }

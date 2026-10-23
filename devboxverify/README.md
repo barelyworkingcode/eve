@@ -1248,6 +1248,32 @@ gives the measured gap.
   never a path, and never changes the result: it cannot reject, and its limit
   (30 s) sits above its own bound. See `claude-transcripts.js`.
 
+**history-resume.** A past Claude terminal is found and resumed from the Launcher's
+Resume tab (G2.58, simple path; 360 s, needs Claude). In Acme Corp it opens
+Launcher > New > the Claude terminal, answers the folder-trust prompt if it shows,
+types `Reply with exactly verify-<nonce>-history and nothing else.`, then
+`/rename History journey`. On a stack with a broker it first picks `/model haiku`,
+because the broker serves only that alias. It then reopens the Launcher on Resume
+until relay's own row carries the title (up to 60 s, with the terminal still open),
+and closes the tab. Next it reopens the Resume tab until relay lists the row with
+`resume: "history"` (up to 90 s: relay re-reads transcripts on a scan, and a closed
+terminal stays held until a probe sees it gone). The age and the badge "Terminal"
+are read from that row's own element, never from a neighbour's text.
+One tap on "Resume History journey" must close the Launcher, open an active terminal
+tab, and show the earlier marker in that terminal's scrollback within 60 s.
+- Lives in: `devboxverify/journeys-history.js`; `public/dialogs/shell-launcher-dialog.js`
+  (`_renderResumeTab`); relay's `GET /api/session-history` and
+  `POST /api/session-history/{id}/resume`.
+- Traps: BLOCKED when the Launcher offers no Claude terminal, or when Claude shows
+  no prompt within 60 s or does not reply within 120 s (model output has no signal,
+  so these are bounded reads of the terminal text). FAIL when relay's row
+  never carries the `/rename` title within 60 s (this wait is not soft), when the row
+  never lists with `resume: "history"`, or when the Resume tab says "History
+  unavailable". Cleanup closes the terminals the journey opened by
+  id and never touches tmux. The conversation file carries the run's marker, so
+  the transcript sweep removes it (see "Transcript cleanup" above).
+  Run it alone: `node devboxverify/main.js --only history-resume`.
+
 **cos-project-from-relay.** A project chosen in relay's Settings is the one the
 Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
 needs setup V-COS-B and relay's Chief of Staff setting at Not set; with the
