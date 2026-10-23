@@ -38,11 +38,23 @@ class ShellLauncherDialog extends DialogBase {
       this._paintHistory();
     });
     // The dialog stays open until relay's terminal exists, so a refusal can
-    // show its toast over a button that comes back.
-    this.bus.on(EVT.TERMINAL_CREATED, () => {
+    // show its toast over a button that comes back. TERMINAL_LIST fires right
+    // after the terminal manager has set the new terminal up; nothing emits
+    // TERMINAL_CREATED on this path.
+    this.bus.on(EVT.TERMINAL_LIST, () => {
       if (!this._resumingId) return;
+      const terminals = this.container.has('terminalManager') ? this.container.get('terminalManager').terminals : null;
+      const newId = terminals && [...terminals.keys()].find((id) => !this._terminalsBefore.has(id));
+      if (!newId) return;
       this._resumingId = null;
+      // Deliberate: the tab strip shows only the active project's tabs, and
+      // relay's 201 need not name the project or a directory eve can match
+      // to one. The launcher knows which project the person resumed in.
+      const tabManager = this.container.get('tabManager');
+      const tab = tabManager.tabs.find((t) => t.id === newId);
+      if (tab && !tab.projectId) tab.projectId = this.projectId;
       this.hide();
+      tabManager.switchToTab(newId);
     });
 
     // A targeted DOM patch, not a full _showTab('new') re-render: this used
@@ -507,6 +519,8 @@ class ShellLauncherDialog extends DialogBase {
           return;
         }
         this._resumingId = row.id;
+        const termMgr = this.container.has('terminalManager') ? this.container.get('terminalManager') : null;
+        this._terminalsBefore = new Set(termMgr?.terminals?.keys() || []);
         btn.textContent = 'Resuming…';
         btn.disabled = true;
         // Only the row id and the size: relay owns everything else.
