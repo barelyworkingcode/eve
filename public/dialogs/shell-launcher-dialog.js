@@ -34,7 +34,7 @@ class ShellLauncherDialog extends DialogBase {
         id: `history-resume-${d.id}`, type: 'error', duration: 8000,
         message: `Can't resume: ${String(d.error || d.code || 'unknown').replace(/\s+/g, ' ').trim()}`,
       });
-      this._resumingId = null;
+      if (d.id === this._resumingId) this._resumingId = null;
       this._paintHistory();
     });
     // The dialog stays open until relay's terminal exists, so a refusal can
