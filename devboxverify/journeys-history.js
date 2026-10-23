@@ -1,7 +1,8 @@
 // The history-resume journey (G2.58): a Claude terminal started from the Launcher, renamed with /rename and closed,
 // is listed on the Resume tab under its own title with the badge "Terminal"; one tap on Resume opens a terminal tab
 // on the same conversation, whose scrollback holds the earlier prompt. See README.md.
-// Waits: the tab and pane by locator; the History rows by locator after each reopen of the Launcher. Claude's first
+// Waits: the tab and pane by locator; the History rows by relay's session_history frame after each reopen of the
+// Launcher (the title, then resume "history" once the tab is closed), and the row by its id. Claude's first
 // prompt, its reply and /rename have no signal, so they are bounded reads of the terminal's text, as outside-adopt reads
 // its transcript. Cleanup closes the terminals this journey opened and never touches tmux.
 const { expect } = require('@playwright/test');
@@ -47,9 +48,10 @@ function historyFrames(page) {
 }
 
 // What relay's rows showed, for a failure detail. Titles are untrusted text: cut and quoted.
-const describeRows = (rows) => (rows.length
-  ? rows.map((r) => `{title:${JSON.stringify(String(r.title ?? null).slice(0, 60))}, titleSource:${JSON.stringify(r.titleSource ?? null)}, state:${r.state}, resume:${r.resume}${r.resumeReason ? `/${r.resumeReason}` : ''}, transcript:${r.transcript}}`).join(' ')
-  : 'no rows');
+const describeRow = (r) => `{id:${JSON.stringify(String(r.id ?? null).slice(0, 60))}, title:${JSON.stringify(String(r.title ?? null).slice(0, 60))}, `
+  + `titleSource:${JSON.stringify(r.titleSource ?? null)}, record:${r.record}, kind:${r.kind}, state:${r.state}, `
+  + `resume:${r.resume}${r.resumeReason ? `/${r.resumeReason}` : ''}, transcript:${r.transcript}, conversation:${r.conversationId ? 'set' : 'none'}}`;
+const describeRows = (rows) => (rows.length ? rows.map(describeRow).join(' ') : 'no rows');
 
 async function screenTail(page) {
   const text = await page.locator('#terminal').innerText({ timeout: 2000 }).catch(() => '');
@@ -179,30 +181,50 @@ async function historyResume(env) {
   await need('the terminal never left relay\'s list after the tab closed', expect.poll(
     async () => (await acmeIds(env, 'terminals')).includes(opened[0]), { timeout: 30000 }).toBe(false));
 
-  env.step('look for the row on the Resume tab');
+  // The signal is relay's row state, not the title alone: a closed terminal's conversation stays in the outside
+  // probe's held set (resume "none", reason "held") until the next probe sees the process gone.
+  env.step('wait for relay to list the row as resumable');
   let dialog;
   let text = '';
   const listed = await poll(async () => {
     dialog = await openResumeTab(page, env);
     text = await dialog.innerText();
-    if (text.includes(TITLE)) return true;
+    if (seen.rows.some((r) => r.title === TITLE && r.resume === 'history')) return true;
     await dialog.getByRole('button', { name: 'Close', exact: true }).click({ timeout: 5000 });
     return null;
   }, { timeoutMs: ROW_WITHIN_MS, intervalMs: 3000 });
   if (!listed) {
-    return result(id, FAIL, text.includes('History unavailable')
-      ? 'the Resume tab says "History unavailable"'
-      : `no History row titled "${TITLE}" within ${ROW_WITHIN_MS / 1000}s of closing the terminal (rows: ${describeRows(seen.rows)}; dialog: ${JSON.stringify(text.slice(0, 300))})`);
+    const titled = seen.rows.filter((r) => r.title === TITLE);
+    if (text.includes('History unavailable')) return result(id, FAIL, 'the Resume tab says "History unavailable"');
+    if (!titled.length) {
+      return result(id, FAIL, `no History row titled "${TITLE}" within ${ROW_WITHIN_MS / 1000}s of closing the terminal (rows: ${describeRows(seen.rows)}; dialog: ${JSON.stringify(text.slice(0, 300))})`);
+    }
+    const at = text.indexOf(TITLE);
+    return result(id, FAIL, `relay never listed the row titled "${TITLE}" with resume "history" within ${ROW_WITHIN_MS / 1000}s of closing the terminal `
+      + `(titled rows: ${titled.map(describeRow).join(' ')}; dialog near the row: ${JSON.stringify(text.slice(Math.max(0, at - 40), at + 200))})`);
   }
-  const from = text.indexOf(TITLE);
-  const next = text.indexOf('Resume ', from + TITLE.length);
-  const rowText = text.slice(from, next < 0 ? undefined : next + 80);
+  const row = seen.rows.find((r) => r.title === TITLE && r.resume === 'history');
+  // The row relay sent, by its id: the age and badge checks read that row alone, never a neighbour's text.
+  const item = dialog.locator(`[data-history-id=${JSON.stringify(String(row.id))}]`);
+  const shown = await expect(item).toBeVisible({ timeout: 10000 }).then(() => true, () => false);
+  if (!shown) {
+    return result(id, FAIL, `relay listed ${describeRow(row)} but the Resume tab shows no row with that id within 10s `
+      + `(dialog: ${JSON.stringify((await dialog.innerText().catch(() => '')).slice(0, 300))})`);
+  }
+  const rowText = await item.innerText();
   const problems = [];
-  if (!/\bago\b|\bnow\b/.test(rowText)) problems.push(`the row shows no age (${JSON.stringify(rowText.slice(0, 80))})`);
-  if (!rowText.includes('Terminal')) problems.push(`the row has no "Terminal" badge (${JSON.stringify(rowText.slice(0, 80))})`);
+  if (!/\bago\b|\bnow\b/.test(rowText)) problems.push(`the row shows no age (${JSON.stringify(rowText.slice(0, 120))})`);
+  if (!rowText.includes('Terminal')) problems.push(`the row has no "Terminal" badge (${JSON.stringify(rowText.slice(0, 120))})`);
 
   env.step('tap Resume');
-  await dialog.getByRole('button', { name: `Resume ${TITLE}`, exact: true }).click({ timeout: 5000 });
+  const resume = item.getByRole('button', { name: `Resume ${TITLE}`, exact: true });
+  const resumable = await expect(resume).toBeVisible({ timeout: 5000 }).then(() => true, () => false);
+  if (!resumable) {
+    const buttons = await item.getByRole('button').evaluateAll((els) => els.map((b) => b.getAttribute('aria-label') || b.textContent.trim()));
+    return result(id, FAIL, `the row ${describeRow(row)} has no "Resume ${TITLE}" button `
+      + `(row text: ${JSON.stringify(rowText.slice(0, 200))}; buttons: ${JSON.stringify(buttons)})`);
+  }
+  await resume.click({ timeout: 5000 });
   await activeTab(page, 'resumed terminal');
   await need('the Launcher stayed open after Resume', expect(dialog).toBeHidden({ timeout: TAB_WITHIN_MS }));
 
