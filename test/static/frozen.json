@@ -126,6 +126,7 @@
     {"id":"cos-project-from-relay","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":180000,"screen":true},
     {"id":"files-on-host","needs":[],"areas":["files","git","hosts"],"timeoutMs":240000,"screen":true},
     {"id":"cos-outside-simple","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":600000,"screen":true},
+    {"id":"outside-adopt-host","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":480000,"screen":true},
     {"id":"project-mode-new","needs":[],"areas":["home","projects"],"timeoutMs":90000,"screen":true},
     {"id":"add-browser-in-window","needs":[],"areas":["auth"],"timeoutMs":90000,"screen":true}
   ]

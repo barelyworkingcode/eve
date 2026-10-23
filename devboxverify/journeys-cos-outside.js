@@ -901,6 +901,144 @@ async function outsideAdopt(env) {
     + `the claude in the tmux pane exited, and relay audit holds a session_adopt row with outcome ok`);
 }
 
+// G6.110, the simple path: an idle Claude started in tmux in a host project's folder is adopted from the rail's host row. The
+// loopback host is this machine, so relay lists the same process twice: as a console row (hostId empty) and as the host row.
+// The journey selects the row by hostId and never taps the console twin. One tap answers 201; the host row goes; the managed row
+// shows "Drop in to <name>" under Idle with no Unsandboxed chip; the host's tmux lists relay-agent-<session id>; relay audit holds
+// an ok session_adopt row with host_id. Screen journey: a host project raises the presence prompt.
+// Waits: the outside row from the captured frames, the button and rows by locator, the adopt answer by waitForResponse, tmux ls and
+// relay audit by CLI exit inside bounded polls. Claude's reply and trust prompt have no hook: bounded reads, as outside-adopt uses.
+// Cleanup ends only the tmux sessions this run started, by name. It never kills or replaces the default tmux server.
+async function outsideAdoptHost(env) {
+  const id = 'outside-adopt-host';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const tools = newTools(env, id);
+  if (tools.problem) return result(id, BLOCKED, tools.problem);
+  if (!env.relayBin) return result(id, BLOCKED, 'no relay binary to read the audit with');
+
+  const marker = `verify-${env.nonce}-adopt-host`;
+  const branch = `verify-${env.nonce}-adopt-host`;
+  const tmuxName = `verify-${env.nonce}-outside-adopt-host`;
+  const held = { hostId: '', projectId: '', hostDir: '', sessionId: '' };
+  // Registered before the tap, in dependency order: the adopted session and its agent tmux session, then the project, the host
+  // and the folder. A tmux session is ended by name only.
+  env.cleanup('delete the adopted session and end its agent tmux session', async () => {
+    const failures = [];
+    if (held.sessionId) {
+      try { await require('./journey-kit').deleteSession(env, held.sessionId); } catch (err) { failures.push(`session: ${firstLine(err)}`); }
+      try { await exec(tools.tmux, ['kill-session', '-t', `=relay-agent-${held.sessionId}`], { timeout: 10000 }); } catch (err) {
+        if (!/can't find|no server|not found/i.test(String(err.stderr || err.message))) failures.push(`tmux relay-agent-${held.sessionId}: ${firstLine(err)}`);
+      }
+    }
+    if (failures.length) throw new Error(failures.join('; '));
+  });
+  env.cleanup('delete the hosted project and host', async () => {
+    const failures = [];
+    const attempt = async (label, fn) => { try { await fn(); } catch (err) { failures.push(`${label}: ${firstLine(err)}`); } };
+    if (held.projectId) await attempt('project', () => eveJson(env, 'DELETE', `/api/projects/${held.projectId}`));
+    if (held.hostId) await attempt('host', () => eveJson(env, 'DELETE', `/api/hosts/${held.hostId}`));
+    if (held.hostDir && path.basename(held.hostDir).startsWith(HOST_STATE_DIR)) await attempt('folder', () => fs.promises.rm(held.hostDir, { recursive: true, force: true }));
+    if (failures.length) throw new Error(failures.join('; '));
+  });
+
+  const page = await env.newPage();
+  const seen = frames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const blocked = await inventoryProblem(seen);
+  if (blocked) return result(id, BLOCKED, blocked);
+
+  env.step('create the host project');
+  const hosted = await createHostedProject(env, held, env.nonce);
+  if (hosted.problem) return result(id, BLOCKED, hosted.problem);
+  const dir = hosted.folder;
+  await gitFolder(dir, branch);
+  const base = path.basename(dir);
+
+  // The stack's broker serves one model. The helpers set only the Haiku alias, so a settings file of this journey sets all
+  // three defaults: relay launches the adopted session with the family alias the transcript names.
+  let settings;
+  if (env.stack && env.stack.claudeModel) {
+    const cfg = await kit().scratchFolder(env, 'outside-adopt-host-cfg');
+    settings = path.join(cfg, 'settings.json');
+    const m = env.stack.claudeModel;
+    await fs.promises.writeFile(settings, JSON.stringify({ env: { ANTHROPIC_DEFAULT_HAIKU_MODEL: m, ANTHROPIC_DEFAULT_SONNET_MODEL: m, ANTHROPIC_DEFAULT_OPUS_MODEL: m } }) + '\n');
+  }
+  const started = await startClaude(env, tools, { name: tmuxName, dir, prompt: `Reply with exactly ${marker} and nothing else.`, asPerson: true, settings });
+
+  env.step('wait for the outside reply');
+  // Waits: none possible for model output; a bounded read of the conversation's transcript, as outside-adopt reads it.
+  const claudeId = tools.claudeIds[tools.claudeIds.length - 1].id;
+  const replied = await poll(async () => {
+    const got = await assistantReplies(claudeId, marker);
+    return got.real || got.synthetic.length ? got : null;
+  }, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
+  if (!replied) return result(id, BLOCKED, `the outside claude did not reply ${marker} within ${REPLY_WITHIN_MS / 1000}s (model output${started.trusted ? '; a trust prompt was answered' : ''})`);
+  if (!replied.real) return result(id, BLOCKED, `the outside claude answered "<synthetic>": ${replied.synthetic[0]}`);
+
+  env.step('wait for the idle host row');
+  const listed = await poll(async () => seen.sessions.find((s) => s.hostId === held.hostId && s.state === 'idle' && String(s.directory || '').includes(base)) || null,
+    { timeoutMs: ROW_WITHIN_MS + IDLE_WITHIN_MS, intervalMs: 500 });
+  if (!listed) return result(id, FAIL, `no cos_outside_sessions frame listed an idle claude on host ${held.hostId} in ${base} within ${(ROW_WITHIN_MS + IDLE_WITHIN_MS) / 1000}s of its reply`);
+  const adoptButton = page.getByTestId(`rail-adopt-${listed.id}`);
+  const shown = await expect(adoptButton).toBeVisible({ timeout: ROW_WITHIN_MS }).then(() => true, () => false);
+  if (!shown) {
+    const why = await page.getByTestId(`rail-adopt-reason-${listed.id}`).textContent({ timeout: 1000 }).catch(() => '');
+    return result(id, FAIL, `the idle host row for ${base} shows no Adopt button${why ? ` (its line: "${why.trim()}")` : ''} (adoptable: ${JSON.stringify(listed.adoptable)}, reason: ${JSON.stringify(listed.adoptReason)})`);
+  }
+  const name = ((await adoptButton.getAttribute('aria-label')) || '').replace(/^Adopt /, '');
+
+  env.step('tap Adopt');
+  const sentAt = Date.now();
+  const answered = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes(`/api/outside-sessions/${encodeURIComponent(listed.id)}/adopt`), { timeout: 90000 })
+    .then(async (r) => ({ status: r.status(), body: await r.json().catch(() => null) })).catch(() => null);
+  await adoptButton.click({ timeout: 5000 });
+  const answer = await answered;
+  held.sessionId = (answer && answer.body && answer.body.sessionId) || '';
+  if (!answer || answer.status !== 201 || !held.sessionId) {
+    return result(id, FAIL, `POST /api/outside-sessions/<id>/adopt answered ${answer ? answer.status : 'nothing'} (${JSON.stringify(answer && answer.body || null).slice(0, 200)})`);
+  }
+  const problems = [];
+  if (answer.body && answer.body.unsandboxed) problems.push('the 201 marked the host session unsandboxed');
+
+  env.step('wait for the managed row');
+  const dropIn = page.getByTestId('rail-agents-group-idle').getByRole('button', { name: `Drop in to ${name}`, exact: true });
+  const managed = await expect(dropIn).toBeVisible({ timeout: ROW_WITHIN_MS }).then(() => true, () => false);
+  if (!managed) problems.push(`no "Drop in to ${name}" button under Idle within ${ROW_WITHIN_MS / 1000}s of the 201`);
+  else {
+    const meta = await page.getByTestId(`rail-agent-meta-${held.sessionId}`).textContent({ timeout: 5000 }).catch(() => '');
+    if (!meta.includes('Drop-in Host outside')) problems.push(`the managed row is not in the host project (its line: "${meta.trim()}")`);
+    if (await page.getByTestId(`rail-agent-unsandboxed-${held.sessionId}`).count()) problems.push('the managed host row shows the Unsandboxed chip');
+  }
+  const gone = await expect(page.getByTestId(`rail-agent-outside:${listed.id}`)).toHaveCount(0, { timeout: GONE_WITHIN_MS }).then(() => true, () => false);
+  if (!gone) problems.push(`the Outside host row for ${base} is still on the rail ${GONE_WITHIN_MS / 1000}s after the 201`);
+
+  env.step('wait for the host tmux session');
+  const agentTmux = `relay-agent-${held.sessionId}`;
+  const listedTmux = await poll(async () => {
+    try { return (await exec(tools.tmux, ['ls', '-F', '#{session_name}'], { timeout: 10000 })).stdout.split('\n').includes(agentTmux) || null; } catch { return null; }
+  }, { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
+  if (!listedTmux) problems.push(`tmux ls does not list ${agentTmux} within ${GONE_WITHIN_MS / 1000}s of the 201`);
+
+  env.step('read relay audit');
+  const cfg = env.relayConfigDir ? ['--config-dir', env.relayConfigDir] : [];
+  const audited = await poll(async () => {
+    const { stdout } = await exec(env.relayBin, [...cfg, 'audit', '--event', 'session_adopt', '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 });
+    for (const line of stdout.split('\n')) {
+      let o;
+      try { o = JSON.parse(line); } catch { continue; }
+      if (!o || o.event !== 'session_adopt' || o.outcome !== 'ok' || !(Date.parse(o.ts) >= sentAt - 1000)) continue;
+      if (o.host_id === held.hostId || (o.args && o.args.host_id === held.hostId)) return true;
+    }
+    return null;
+  }, { timeoutMs: HOOK_STATE_WITHIN_MS * 2, intervalMs: 1000 });
+  if (!audited) problems.push(`relay audit holds no session_adopt row with outcome ok and host_id ${held.hostId} since the tap`);
+
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `the idle host row for ${base} showed Adopt ${name}; one tap answered 201, the Outside host row left the rail, "Drop in to ${name}" showed under Idle in the host project with no Unsandboxed chip, `
+    + `tmux lists ${agentTmux}, and relay audit holds an ok session_adopt row with host_id`);
+}
+
 // relay's session_adopt rows for one Claude conversation since the tap. A Claude row has no `agent` arg (only Pi and Codex
 // rows do), so the conversation id picks them. Waits: none possible: relay writes the completion after it answers. A bounded poll of the CLI.
 async function noProjectAdoptAudit(env, sentAt, claudeId) {
@@ -1327,6 +1465,9 @@ module.exports = {
     },
     outsideAdopt: {
       id: 'outside-adopt', claude: true, timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdopt,
+    },
+    outsideAdoptHost: {
+      id: 'outside-adopt-host', claude: true, timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true, run: outsideAdoptHost,
     },
     outsideAdoptUnsandboxed: {
       id: 'outside-adopt-unsandboxed', claude: true, timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdoptUnsandboxed,
