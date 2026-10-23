@@ -4637,6 +4637,7 @@ const journeys = [
   cosOutside.cosOutsideSimple,
   cosOutside.outsideThread,
   cosOutside.outsideAdopt,
+  cosOutside.outsideAdoptHost,
   cosOutside.outsideAdoptUnsandboxed,
   cosOutside.outsideAdoptPi,
   cosOutside.outsideAdoptCodex,

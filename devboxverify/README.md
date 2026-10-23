@@ -1136,6 +1136,27 @@ transcript.
 - Traps: BLOCKED setup V-COS; no NOTRUN path. Run it alone:
   `node devboxverify/main.js --only outside-adopt`.
 
+**outside-adopt-host.** An idle outside Claude on an SSH host is adopted from the rail's host
+row (G6.110, simple path). Screen journey (`screen: true`, 480 s): a host project raises the
+presence prompt, so the nightly runs it and a `--stack` run does not. Same BLOCKED rules as
+outside-adopt. It makes the loopback host and project of cos-host-agent (`Drop-in Host outside
+<nonce>`), and starts `claude --model haiku --permission-mode default` in a detached tmux session
+in that project's folder, typed in as a person would, with the stack's broker wiring. A settings
+file of the journey sets all three `ANTHROPIC_DEFAULT_*_MODEL` values to the stack model, so the
+family alias relay reads from the transcript resolves on the broker (BLOCKED when the reply never
+comes). The loopback host is this machine, so relay lists the process twice: the journey selects
+the row whose `hostId` is the fixture host and never the console twin. That row must show
+`Adopt <name>`; one tap must answer 201 with a `sessionId`. Then the host row must leave the rail,
+`Drop in to <name>` must show under Idle on a row of the host project with no "Unsandboxed" chip,
+`tmux ls` must list `relay-agent-<session id>`, and `relay audit --event session_adopt` must hold
+an `ok` row with the fixture's `host_id`. One cleanup deletes the adopted session and ends the
+tmux sessions this run started by exact name (`tmux kill-session -t =<name>`); it never kills or
+replaces the default tmux server. The usual cleanups delete the project, the host and the folder,
+and remove the transcript.
+- Lives in: `public/agent-board.js` (`showsAdopt`); `routes/index.js` (adopt route); relay's `POST /api/sessions/adopt` on a host.
+- Traps: BLOCKED setup V-COS; no NOTRUN path. The audit's `host_id` is read from the row or its `args`. Run it alone:
+  `node devboxverify/main.js --screen --only outside-adopt-host`.
+
 **outside-adopt-unsandboxed.** A Claude started outside every project is adopted from the
 rail and shows the "Unsandboxed" chip (G6.109, simple path). Not a screen journey (480 s),
 and it needs no console, so it runs on a `--stack` run. Same BLOCKED rules as
