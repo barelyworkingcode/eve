@@ -141,6 +141,8 @@ test.describe('threads from yesterday', () => {
     const again = await openResume(page);
     await expect(again.getByRole('button', { name: 'Resume Roadmap', exact: true })).toBeVisible();
     await expect(again.getByRole('button', { name: 'Resume Ledger', exact: true })).toBeHidden();
+    // A deleted session's history row falls back to a generic title, so the name check above cannot see it: only Roadmap's row may remain.
+    await expect(again.getByRole('button', { name: /^Resume / })).toHaveCount(1);
   });
 
   test('cancel the delete and the thread stays @G3.12.r1', async ({ eve, page, relay }) => {
