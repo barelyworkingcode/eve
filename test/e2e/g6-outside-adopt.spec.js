@@ -23,7 +23,7 @@ const OK_WORLD = { model_family: 'haiku' };
 // A row that is still working: relay finds the registry entry busy until the interrupt clears it.
 const BUSY_WORLD = { busy: 'registry_busy', model_family: 'haiku' };
 
-const ON_HOST = "On a host, so it can't be adopted here.";
+const ON_HOST = "Relay can't adopt sessions on this host.";
 const NOT_REGISTERED = "Claude keeps no session record for it, so it can't be adopted.";
 const NOT_INTERACTIVE = "Not an interactive session, so it can't be adopted.";
 const NOT_COMMAND_LINE = "Not started from the command line, so it can't be adopted.";
@@ -782,5 +782,78 @@ test.describe('a session relay marks unsandboxed', () => {
     await expect(rowOf(rail, 'Loose notes (drop-in)')).toHaveCount(0);
     await expect(chipsOf(rowOf(rail, 'Loose notes'))).toHaveCount(1);
     await expect(chipsOf(rail)).toHaveCount(1);
+  });
+});
+
+// A terminal Claude on an SSH host. Relay marks it adoptable (or not) from the host's settings; eve sends the
+// same row id and one boolean. fakerelay adopts an adoptable host row into its host project, with the host on
+// the session, the model from `adopt.model_family`, and no `unsandboxed`.
+const HOST_DIR = '/home/acme/orchard';
+const hostRow = (over = {}) => liveRow(null, {
+  id: oid(5),
+  name: 'Orchard notes',
+  project_id: 'p_box',
+  host_id: 'h_box',
+  machine: 'testbox',
+  directory: HOST_DIR,
+  claude_session_id: OTHER_SID,
+  ...over,
+});
+
+test.describe('an idle Claude row on an SSH host', () => {
+  test.use({ world: adoptWorld() });
+
+  test('adopting a host row shows the managed host row @G6.110', async ({ eve, page, relay }) => {
+    await seed(relay, () => [hostRow()]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    const adopt = adoptButton(rail, 'Orchard notes');
+    await expect(adopt).toBeVisible();
+    await expect(interruptButton(rail, 'Orchard notes')).toHaveCount(0);
+    await expect(dropIn(rail, 'Orchard notes')).toHaveCount(0);
+
+    const faultId = await holdSlow(relay);
+    const sent = page.waitForRequest((r) => r.method() === 'POST' && ADOPT_PATH.test(r.url()));
+    await adopt.click();
+    const request = await sent;
+    expect(decodeURIComponent(request.url())).toContain(`/api/outside-sessions/${oid(5)}/adopt`);
+    expect(request.postData()).toBe('{"interrupt":false}');
+    await relay.waitForEvent('fakerelay.fault', { match: (l) => l.action === 'held' });
+    const busy = rail.getByRole('button').filter({ hasText: 'Adopting…' });
+    await expect(busy).toBeDisabled();
+
+    expect((await relay.ctl('fault', 'release', '--id', faultId)).code).toBe(0);
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(rail, 'Orchard notes')).toBeVisible();
+    await expect(rail.getByRole('heading', { name: /^Idle/ })).toBeVisible();
+    await expect(rowOf(rail, 'Orchard notes')).toContainText('Orchard · Idle');
+    await expect(anyAdopt(rail)).toHaveCount(0);
+    await expect(chipsOf(rail)).toHaveCount(0);
+  });
+
+  test("a host row relay can't adopt shows the reason @G6.110.r1", async ({ eve, page, relay }) => {
+    await seed(relay, (dir) => [liveRow(dir), hostRow({ adoptable: false, adopt_reason: 'host_unsupported' })]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    // The adoptable console row has its button: the marker that the board has loaded every row.
+    await expect(adoptButton(rail)).toBeVisible();
+    await expect(rail.getByRole('button', { name: 'Orchard notes', exact: true })).toBeVisible();
+    await expect(rail.getByText(ON_HOST)).toBeVisible();
+    await expect(adoptButton(rail, 'Orchard notes')).toHaveCount(0);
+    await expect(interruptButton(rail, 'Orchard notes')).toHaveCount(0);
+  });
+
+  test('relay refuses with host_link_lost @G6.110.r2', async ({ eve, page, relay }) => {
+    await seed(relay, () => [hostRow({ adopt: { ...OK_WORLD, refuse: 'host_link_lost' } })]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    await adoptButton(rail, 'Orchard notes').click();
+    await relay.waitForEvent('session.adopt');
+    await expect(toastOf(page, /^Can't adopt: .+/)).toBeVisible();
+    await expect(adoptButton(rail, 'Orchard notes')).toBeEnabled();
+    await expect(dropIn(rail, 'Orchard notes')).toHaveCount(0);
   });
 });
