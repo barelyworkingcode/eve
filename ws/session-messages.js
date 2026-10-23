@@ -190,9 +190,8 @@ async function handleHistoryResume(ctx) {
   if (status !== 201 || !data || !data.terminalId) {
     return refuse((data && data.code) || 'unavailable', (data && data.error) || `resume failed (${status})`);
   }
-  // Relay's 201 also names the row it supersedes; the browser re-lists instead of using it.
-  const { supersedes, ...created } = data;
-  ws.send(JSON.stringify({ type: 'terminal_created', ...created }));
+  // `supersedes` stays on the frame: it ties this terminal to the row the person tapped.
+  ws.send(JSON.stringify({ type: 'terminal_created', ...data }));
   relayClient.send({ type: 'join_terminal', terminalId: data.terminalId });
 }
 

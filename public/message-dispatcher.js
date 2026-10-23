@@ -121,7 +121,7 @@ class MessageDispatcher {
         message: `Live file updates are off for this project (${d.reason}). Refresh the tree to see changes.`,
       }),
       terminal_request:     (d) => this.terminal.createTerminal(d.command, d.directory, d.projectId || ''),
-      terminal_created:     (d) => this.terminal.onTerminalCreated(d.terminalId, d.templateId, d.name, d.directory, d.host, d),
+      terminal_created:     (d) => { this.terminal.onTerminalCreated(d.terminalId, d.templateId, d.name, d.directory, d.host, d); this.bus.emit(EVT.TERMINAL_CREATED, d); },
       terminal_joined:      (d) => this.terminal.onTerminalJoined(d),
       terminal_output:      (d) => this.terminal.onTerminalOutput(d.terminalId, d.data),
       terminal_exit:        (d) => this.terminal.onTerminalExit(d.terminalId, d.exitCode),
