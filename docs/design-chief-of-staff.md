@@ -1,3 +1,5 @@
+> History: this describes the retired devbox verify setup.
+
 # Chief of Staff: model and prompt
 
 Epic relay#231, eve#197. This page covers the model session and the prompts (`chief-of-staff-model.js`, `chief-of-staff-prompt.js`). The reader, send path and thread view have their own owners; the wire contract is in [api.md](api.md).

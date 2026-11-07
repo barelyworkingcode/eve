@@ -1,3 +1,5 @@
+> History: this describes the retired devbox verify setup.
+
 # S2 · Today on iPad and iPhone
 
 Slice S2 of Epic #34 (#127), on S1 ([design-today-s1.md](design-today-s1.md)). Intent: `design/homework/index.html`, "By device".

@@ -11,7 +11,7 @@ You read the rows of your goals in `docs/FEATURES.md`, then `docs/test.md` (the 
 
 - Write one test per row (`@G7.3`) and one per refusal (`@G7.3.r1`).
 - A door is the steps, a Screen proof is the `expect`s, and a Relay proof is `relay.waitForEvent` or `relay.cli`/`relay.json`.
-- Write `devbox: <journey>` in the Spec cell only when the row can't be proven hermetically and its Journey cell names a journey. Otherwise report it as a question.
+- Do not write `devbox: <journey>` in a Spec cell: the devbox verify harness is retired and no journey runs. A row that can't be proven hermetically is reported as a question (`needs a lab pass`).
 - When a control can't be found by role and name, stop on that row. Report it as an accessibility finding with the row ID and what the screen showed (from `test-results/**/error-context.md`). Never reach for another locator.
 - When a spec fails against real eve, that is a finding. Never bend the test to pass.
 - Follow the waits rules from the global test-writer: no durations, and a "nothing happened" check waits for a positive marker first.

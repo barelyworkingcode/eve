@@ -19,7 +19,7 @@ Per-journey locators and traps live in [devboxverify/README.md](../devboxverify/
 **Owner gate** marks a step that needs the owner's credential or presence:
 a passkey ceremony, a presence-gated relay action, a tool-permission answer.
 An agent inside the product must never complete it. The devbox verify
-harness may, with the operator's test credentials. Each owner gate has a
+harness (retired) could, with the operator's test credentials. Each owner gate has a
 positive journey (the harness passes it as the owner would) and a negative
 journey (an in-product agent tries the same step and is refused and
 audited). Never an API or flag that skips it. See [Owner gates](#owner-gates).
@@ -42,7 +42,7 @@ audited). Never an API or flag that skips it. See [Owner gates](#owner-gates).
 | G12 | Set up and tune a project | Create a project and set its templates, models and policy | A new project appears in the rail; template and policy edits take effect on the next launch | projects | should | project-mode-new (a `verify-<nonce>` project it creates and deletes), project-admin-in-relay |
 | G13 | Work on a project on another machine | Use an SSH-host project like a local one | Host shows connected; files, terminals and Changes work against the host | hosts, files, terminal, git | should | files-on-host |
 | G14 | Arrange my workspace | Tabs, splits, sidebar, theme and fonts the way I like | Tabs switch and close, a split docks and undocks, settings persist | shell, settings | later | none yet |
-| G15 | Use eve from my phone | The iOS app and mobile Safari | Sign-in via Safari fallback, keybar, swipe, Action Button deep link | auth, voice, terminal | later | none yet: native app needs a devbox pass, not Playwright |
+| G15 | Use eve from my phone | The iOS app and mobile Safari | Sign-in via Safari fallback, keybar, swipe, Action Button deep link | auth, voice, terminal | later | none yet: native app needs a lab pass, not Playwright |
 | G16 | Let a new browser in, or remove one | Enrol a second device, revoke a lost one | The first passkey claims eve; another browser enrols only inside relay's window, never by an agent; a revoked passkey fails its next login | auth | **must-have** | passkey-first-enrol, add-browser-in-window, agent-enrol-refused; revoking: relay |
 
 
@@ -101,7 +101,7 @@ The first step of every Simple door is one of these names. Relay and the iOS app
 - **Simple door**: the steps an everyday person takes, joined by `>`. A control is written `role "name"`. Roles are ARIA roles as Playwright's `getByRole` takes them: number inputs are spinbutton and range inputs are slider. Each written name is the control's accessible name. The feature specs and proofs find a control with `getByRole(role, { name, exact: true })`; the devbox journeys find controls by `title` and testid, not `getByRole`. A pop-up menu is a `menu` and its entries are `menuitem`s; a dialog is a `dialog` named by its title, or by its input's placeholder when it has no title (the command palette).
 - **Power door**: the config key or relay CLI verb a power user uses, or `none`.
 - **Screen proof** and **Relay proof**: what the person sees, and what relay changes or records. **Refusals** are numbered `r1`, `r2`, so `G7.2.r1` names one.
-- **Journey** is the devbox journey that covers the row.
+- **Journey** is the devbox journey that covers the row. The devbox harness is retired and no journey runs; the column is history.
 - **Spec** is the automated test that proves the row. It is `none yet` (optionally `none yet: <reason>`), a spec file in `test/e2e/` such as `g1-today.spec.js`, or `devbox: <journey-id>` for a row no hermetic spec can prove. Several items are separated by `, `. A test names its row in its title: `test('greeting and summary line @G1.3', …)`; a refusal is `@G1.3.r1`. `npm run check:coverage` holds the two sides together. A row may read `none yet` only while its goal is in `test/e2e/coverage-pending.txt`.
 
 Example (shape only):
@@ -818,8 +818,8 @@ rows name that spec in their Spec cell. A PR's e2e job runs the specs of the
 areas its changed code reaches (`scripts/select-specs.js`; rules in
 [`test.md`](test.md#test-selection)). A `full` area runs every spec.
 
-An area that no spec can reach is journey-only: only a devbox journey proves
-it. The line below lists such areas, as `none` or a comma-separated list. Adding
+An area that no spec can reach is journey-only: only a (retired) devbox journey proved
+it; now nothing proves it. The line below lists such areas, as `none` or a comma-separated list. Adding
 an area to it narrows selection, so a PR that does needs the
 `map-narrowing-approved` label.
 
@@ -847,7 +847,7 @@ Journey-only: none
   window rejects at consume time as `Enrollment refused: window consume rejected`.
 - **Model-dependent features** (tool blocks, question options, generated
   images, AI search summary, agent image tabs) need a scripted or
-  deterministic model in the devbox world before a journey can judge them.
+  deterministic model in a test world before a journey can judge them; the devbox world is retired.
 - **Owner gates** (G1 sign-in, G8 answers, G15 Safari sign-in, G16) are
   never skipped by an API or flag. The harness passes eve's with the
   operator's test credentials; relay's journeys cover relay's.

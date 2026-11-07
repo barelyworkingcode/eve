@@ -1,3 +1,5 @@
+> History: this describes the retired devbox verify setup.
+
 # S5b · Routines
 
 Slice S5b of Epic #34 (T5, second half). Intent: `design/homework/index.html`, mockups 04 and 12. Builds on S1, S2 and S5a ([design-workbench.md](design-workbench.md)).
