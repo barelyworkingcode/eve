@@ -1,5 +1,7 @@
 # devboxverify
 
+> History: this describes the retired devbox verify setup. The devbox that ran it is gone; nothing replaces it.
+
 Layer 2 verification: drive a **running**, Relay-managed eve in a real
 Chromium, against the devboxWorld test world, and report one result per
 journey. No mocks. It runs on the devbox, never in CI. Design and contract:

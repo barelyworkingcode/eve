@@ -1,3 +1,5 @@
+> History: this describes the retired devbox verify setup.
+
 # S5a · Project workbench
 
 > **Unregistered by eve#615:** Today no longer shows the agent board (`AgentsPart`). The board stays on the project page (`project-agent-*`) and the phone badge (`AgentBoard.mountBadge`, eve#617). `today-agent-*` ids are not rendered.

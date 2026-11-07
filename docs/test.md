@@ -13,7 +13,7 @@ Eve's hermetic suite is Playwright. Each test starts its own `fakerelay` (relay'
 | `npm ci` | a dispatched `ci` run (`check` job) | the lockfile installs |
 | `scripts/ci-guards.sh <base> <head>` | by hand; no workflow runs it | tests-only, skip-focus and hygiene |
 | `npx playwright test` | the verification task of each epic or story, before `main`; a dispatched `ci` run (every spec); the hermetic suite (this guide) | eve against fakerelay, one stack per test |
-| Devbox world | `npm run -s verify:devbox`; `devboxverify --epic REF` posts `devbox/verify-full` once per epic | journeys against the installed stack on the test machine; unchanged, see `devboxverify/README.md` |
+| Devbox world (retired) | does not run: the devbox is gone and no lab equivalent exists; a PR that needs it says `needs a lab pass` | journeys against the installed stack; history only, see `devboxverify/README.md` |
 
 ## Local hooks
 
@@ -24,7 +24,7 @@ The machine's global hooks dispatcher runs `.githooks/`. Never set a repo-local 
 
 ## Browser-test lock
 
-`verify:devbox` and, outside CI, `npx playwright test` (in its global setup) hold one machine-wide advisory lock for the whole run (`scripts/browser-lock.js`), so two browser runs never overlap. The lock file is `~/.cache/eve/browser-tests.lock` (`EVE_BROWSER_LOCK` overrides the path). A second run prints the holder's pid and command and waits up to `EVE_BROWSER_LOCK_TIMEOUT` seconds (default 1800), then gives up: `verify:devbox` exits 2 with a `PREFLIGHT lock FAIL` row. The lock is a kernel `flock` held by a small `perl` child, so `perl` must be on PATH, and the kernel drops it when the holder dies, even by SIGKILL. The lock is not reentrant, so a locked run that starts another locked run waits on itself until it times out. To clear a stuck lock, kill the holder named in the message; don't delete the file.
+`npx playwright test`, outside CI (in its global setup), holds one machine-wide advisory lock for the whole run (`scripts/browser-lock.js`), so two browser runs never overlap. The lock file is `~/.cache/eve/browser-tests.lock` (`EVE_BROWSER_LOCK` overrides the path). A second run prints the holder's pid and command and waits up to `EVE_BROWSER_LOCK_TIMEOUT` seconds (default 1800), then gives up: `verify:devbox` exits 2 with a `PREFLIGHT lock FAIL` row. The lock is a kernel `flock` held by a small `perl` child, so `perl` must be on PATH, and the kernel drops it when the holder dies, even by SIGKILL. The lock is not reentrant, so a locked run that starts another locked run waits on itself until it times out. To clear a stuck lock, kill the holder named in the message; don't delete the file.
 
 ## Hermetic suite
 

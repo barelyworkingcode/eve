@@ -1,3 +1,5 @@
+> History: this describes the retired devbox verify setup.
+
 # devboxverify: design and contract
 
 eve's layer-2 verification: drive a **running**, Relay-managed eve in a real

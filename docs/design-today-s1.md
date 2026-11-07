@@ -1,3 +1,5 @@
+> History: this describes the retired devbox verify setup.
+
 # S1 · Today on the Mac, Work mode
 
 > **Unregistered by eve#615:** Today no longer shows the Morning brief, Needs you, Running and Agents parts. Their files stay and `public/home-screen.js` is the one place that registers them, so each can return. The parts below describe the design, not what Today shows now.

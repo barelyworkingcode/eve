@@ -1,3 +1,5 @@
+> History: this describes the retired devbox verify setup.
+
 # S4 · Research with sources
 
 Slice S4 of Epic #34 (eve #155). Intent: `design/homework/index.html` ("Research with sources", "Citations you can check"). eve only. No change to relay, relayLLM or relayScheduler, and no new route or WS frame.

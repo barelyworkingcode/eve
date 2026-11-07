@@ -7,13 +7,12 @@ Vanilla JS, **no bundler, no build step, no modules**: `public/index.html` loads
 **See also**: [docs/learned.md](docs/learned.md) (pitfalls/patterns) · [docs/api.md](docs/api.md) (HTTP/WS protocol) · [docs/authentication.md](docs/authentication.md) (security model).
 
 Conventions the global rules name: the **feature map** is
-[`docs/FEATURES.md`](docs/FEATURES.md), and the **verify harness** is
-`devboxverify`. A PR that adds or changes a feature updates that feature's row in the feature map in the same PR: its doors, proofs and refusals, and the spec the row names.
+[`docs/FEATURES.md`](docs/FEATURES.md). The repo names no verify harness: the `devboxverify` harness ran on the retired devbox and no lab equivalent exists. A PR that adds or changes a feature updates that feature's row in the feature map in the same PR: its doors, proofs and refusals, and the spec the row names.
 A new feature gets a new row with the next free ID in its goal; IDs are never reused or renumbered. A PR that adds or changes a route or WebSocket frame the browser uses updates [docs/api.md](docs/api.md).
 
-The **verify cadence** is `epic`: a PR needs no `devbox/verify` status. No CI gates a PR. Proof before `main` is the verification task of each epic or story: `npx playwright test` and `devboxverify` on the head after `main` is merged in (`set.js --eve epic/<N>-slug --epic N` for an epic), closed with a `Verified:` line.
+The **verify cadence** is `epic`: a PR needs no verify status. No CI gates a PR. Proof before `main` is the verification task of each epic or story: `npx playwright test` on the head after `main` is merged in, closed with a `Verified:` line (method `repo-suite`).
 
-The **epic full run** is `before merge`: `devboxverify --epic REF` accepts an epic branch head that contains `main`, so it runs before the epic's PR to main merges, as the epic's verification task.
+**No test machine is set up for this repo.** Real-app checks and the verify harness (`devboxverify`) do not run. A PR that needs one says `needs a lab pass`. The devbox that ran the harness is retired; `devboxverify/` and `docs/design-devboxverify.md` stay as history.
 
 ## Security (eve-specific rules)
 
@@ -93,13 +92,12 @@ Frontend is vanilla JS (no framework, no build step), mid-migration from a legac
 ```bash
 node --check <file.js>      # THE build gate. There is no compiler.
 npx playwright test         # hermetic suite: fakerelay + eve per test (docs/test.md)
-npm run -s verify:devbox    # devbox world journeys, test machine only (devboxverify/README.md)
-node devboxverify/set.js --eve epic/<N>-slug --epic N   # an epic's full run on its head; posts devbox/verify-full
+# The devbox world journeys (npm run verify:devbox, devboxverify/set.js) do not run: the devbox is retired.
 ```
 
-**Hermetic suite.** `npx playwright test` (or `npm run test:e2e`): every test starts its own `fakerelay` (relay's repo), relayScheduler and eve, and drives eve only through what a person sees (role, label and text locators). The harness is `playwright.config.js` and `test/e2e/support/`; the fixture API is in [docs/test.md](docs/test.md). The first run builds fakerelay and relayScheduler from the commits in `test/e2e/relay-pin.json`. Devbox world (`devboxverify/`; an epic's last task posts `devbox/verify-full` with `--epic`) stays the proof for what no hermetic spec can reach (real Safari, the iOS app, the installed stack).
+**Hermetic suite.** `npx playwright test` (or `npm run test:e2e`): every test starts its own `fakerelay` (relay's repo), relayScheduler and eve, and drives eve only through what a person sees (role, label and text locators). The harness is `playwright.config.js` and `test/e2e/support/`; the fixture API is in [docs/test.md](docs/test.md). The first run builds fakerelay and relayScheduler from the commits in `test/e2e/relay-pin.json`. What no hermetic spec can reach (real Safari, the iOS app, the installed stack) has no runner now: the devbox world (`devboxverify/`) is retired, and such a PR says `needs a lab pass`.
 
-**Browser-test lock.** `verify:devbox` and (outside CI) `npx playwright test` hold one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
+**Browser-test lock.** `npx playwright test` (outside CI) holds one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
 
 **Local gates** (`.githooks/`, run by the machine's global hooks dispatcher; never set a repo-local `core.hooksPath`, which skips the push guard). `--no-verify` is for the operator in an emergency, never the agent.
 
@@ -112,12 +110,12 @@ Keep fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked tim
 
 Rules that make an otherwise-correct patch wrong here.
 
-- **A new call to relay or relayScheduler needs relay's `fakerelay` to serve it.** Specs run eve against `fakerelay`, built from the relay commit in `test/e2e/relay-pin.json`. A call the pinned fakerelay doesn't serve fails in the specs: bump the pin (a deliberate PR that edits only that file) once relay serves it. The devbox world journeys remain the check that eve and the real relay agree.
+- **A new call to relay or relayScheduler needs relay's `fakerelay` to serve it.** Specs run eve against `fakerelay`, built from the relay commit in `test/e2e/relay-pin.json`. A call the pinned fakerelay doesn't serve fails in the specs: bump the pin (a deliberate PR that edits only that file) once relay serves it. Nothing now checks that eve and the real relay agree beyond the pin: the devbox world journeys are retired, so such a PR says `needs a lab pass`.
 
 - **Script order in `index.html` is load-bearing** (globals, not modules). If you delete a `<script>` tag, make sure nothing later still references its class.
 - **Never weaken or skip a test to go green.** If a test covers code you removed, say so and tighten it rather than deleting the assertion.
 - **Don't reformat or restyle code you aren't otherwise changing.**
-- **Keep the feature map current.** A change a user would notice in a file matched by a `code` glob in `docs/areas.jsonc` updates the feature map `docs/FEATURES.md` (feature row, journey) in the same PR. Separately, a new tracked file must be added to an area or to `quiet` in `docs/areas.jsonc`; devboxverify runs every journey for a file in neither. Reviewers check it. `docs/FEATURES-iOS.md` (rows only the native iOS app reaches) is out of scope: no check counts it, and `check:coverage` fails a row there that has a web door.
+- **Keep the feature map current.** A change a user would notice in a file matched by a `code` glob in `docs/areas.jsonc` updates the feature map `docs/FEATURES.md` (feature row, journey) in the same PR. Separately, a new tracked file must be added to an area or to `quiet` in `docs/areas.jsonc`; the retired devboxverify ran every journey for a file in neither. Reviewers check it. `docs/FEATURES-iOS.md` (rows only the native iOS app reaches) is out of scope: no check counts it, and `check:coverage` fails a row there that has a web door.
 - **CRLF files.** `package-lock.json` and five source files are committed with CRLF: `public/tab-manager.js`, `public/file-editor.js`, `public/sidebar-renderer.js`, `routes/index.js`, `ws-handler.js`. `npm install` rewrites the lockfile as LF, and a tool that rewrites a whole file (rather than patching in place) silently converts it to LF. Either one turns a small change into a whole-file diff. Check with `grep -c $'\r' <file>`, and restore with `perl -pi -e 's/\r?\n/\r\n/' <file>`.
 
 ## Gotchas
